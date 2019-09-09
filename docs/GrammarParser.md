@@ -1,8 +1,6 @@
 #	 Grammar Parsers
 
-Regular expressions are a standard tool in every programmers
-tool-box. But grammar rules are rarley used, they seem to be reserved
-for specialists such as language designers and compiler writers.
+Regular expressions are a standard tool in every programmers tool-box. But grammar rules are rarley used, they seem to be reserved for specialists such as language designers and compiler writers.
 
 This is a pity, since grammar rules make nice specifications, and they can be simpler and more expressive than regular expressions.
 
@@ -14,12 +12,14 @@ We will use a form of [PEG] (Parser Expression Grammar) rules, which can contain
 
 [PEG]: https://en.wikipedia.org/wiki/Parsing_expression_grammar
 
+The grammar rules can be used in almost any programming language. We will use JavaScript here in order to show running examples, and to compare grammar rules with regular expressions. To do that we will need to introduce a few programming language details, but the grammar rules themselves are independent of the host programming language.
+
+The source code for the grammar parser used here can be found at: https://github.com/pcanz/grammar-parser
+
 
 ##  A First Example
 
 The first example is to match a date format, such as "3/4/2019", which some people see as the 3rd of April, and others as the 4th of March. If we ignore the semantics, the syntax is almost trivial, and our first task is simply to match the pattern in this date format.
-
-The grammar rules can be used in almost any programming language. We will use JavaScript here in order to show running examples, and to compare grammar rules with regular expressions. To do that we will need to introduce a few programming language details, but the grammar rules themselves are independent of the host programming language.
 
 First we will look at a standard regular expression to match a date pattern:
 
