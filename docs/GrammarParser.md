@@ -14,7 +14,7 @@ We will use a form of [PEG] (Parser Expression Grammar) rules, which can contain
 
 The grammar rules can be used in almost any programming language. We will use JavaScript here in order to show running examples, and to compare grammar rules with regular expressions. To do that we will need to introduce a few programming language details, but the grammar rules themselves are independent of the host programming language.
 
-The source code for the grammar parser used here can be found at: https://github.com/pcanz/grammar-parser
+The source code for the grammar parser used here can be found at: <https://github.com/pcanz/grammar-parser>
 
 
 ##  A First Example
