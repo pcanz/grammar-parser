@@ -4,4 +4,4 @@ A grammmar-parser enables grammar rules to be directly executed in program code.
 
 The `grammar-parser.js` file is complete and self-contained, it has no external dependencies, and it exports a single function. 
 
-Documentation is in the `docs` folder.
+Documentation is in the `docs` folder, see: https://pcanz.github.io/grammar-parser/
