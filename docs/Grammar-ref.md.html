@@ -1,0 +1,1097 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta lang=en charset="UTF-8">
+<script>if (window.moko) alert("!!! moko global name conflict....");
+window.moko = {}
+</script>
+
+<script>
+// Grammar Parser -- an evolution of Grit.
+
+/*	The MIT License (MIT)
+ *
+ *	Copyright (c) 2015,2016,2017,2018,2019 Peter Cashin
+ *
+ *	Permission is hereby granted, free of charge, to any person obtaining a copy
+ *	of this software and associated documentation files(the "Software"), to deal
+ *	in the Software without restriction, including without limitation the rights
+ *	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ *	copies of the Software, and to permit persons to whom the Software is
+ *	furnished to do so, subject to the following conditions:
+ *
+ *	The above copyright notice and this permission notice shall be included
+ *	in all copies or substantial portions of the Software.
+ *
+ *	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ *	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ *	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ *	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ *	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
+ *	FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ *  DEALINGS IN THE SOFTWARE.
+ */
+
+/*
+    // Example usage:
+
+    const grammar_parser = require("./grammar-parser.js");
+
+    const cvs_rules = String.raw`
+        table  := nl* row+
+        row    := cells nl*
+        cells  := cell ("," cell)*
+        cell   := [^,\n\r]*
+        nl     := [\n] / [\r][\n]?
+    `;
+
+    const csv_actions = {
+        table: (_, rows) => rows,
+        cells: ([c, cs]) => 
+                cs.reduce((xs,[_,x]) => xs.concat(x),[c]),
+        cell:  (s) => s
+    }
+
+    const cvs = grammar_parser(cvs_rules, csv_actions);
+
+    var test = `
+    a1,b1,c1
+    a2,b2,c3
+    a3,b3,c3
+    `;
+
+    var parse_tree = cvs.parse(test);
+
+    console.log(JSON.stringify(parse_tree, null, 2));
+
+    // parse(input, options)
+
+    // options: { // default values...
+    //      trace: false,  // true to trace parse
+    //      replay: false, // to trace after parse failure
+    //      silent: false, // to not throw any faults or print reports
+    //      console: false // to use console.log (don't throw Errors)
+    //      report: null   // report faults when silent = true
+    //  }
+
+*/
+
+;(function() { // module name-space wrapper -- see the end of this file...
+
+// -- grammar rule grammar ---------------------------------------
+
+const grit_rules = String.raw`
+    grammar = rule+
+    rule    = name "=" expr ws act?
+
+    expr    = seq ("/" seq)*
+    seq     = (ws [&!]? term [*+?]?)*
+    term    = ref / match / group
+
+    name    = ws \w+
+    ref     = name !\s*=
+    match   = quote / regex
+    quote   = '"' [^"]* '"' / "'" [^']* "'"
+    regex   = &[[\\] (rex / par)*
+    rex     = [^\s[()]+|[[]([^\]\\]*([\\][^])?)*[\]]
+    par     = [(] ([^()]* par?)* [)]
+    group   = "(" expr ")"
+
+    act     = ":" lines
+    lines   = line (\s* !\S+\s*= line)*
+    line    = [^\n\r]* 
+    ws      = \s*  
+`;
+
+// const grit_rules = String.raw`
+//     rules := rule+
+//     rule  := name ":"? "=" exp act?
+//     exp   := seq ("/" seq)*
+//     seq   := term+
+//     term  := [ \t]* [&!]? prime [*+?]?
+//     prime := ref / rex / group
+//     group := "(" exp ")"
+//     act   := ":" ":"? [ \t]* [^\n\r]*
+
+//     name  := [\s]* [\w]+
+//     ref   := [\w]+
+//     rex   := [~]? (quo / chs / esc / reg)+
+//     quo   := "'" [^']* "'" / '"' [^"]* '"'
+//     esc   := "\" [\S] [*+?]?
+//     chs   := "[" [^\x5D]+ "]" [*+?]?
+//     reg   := [(] (rex/reg/[/|])+ [)]
+
+//     rep   := [*+?] / [{] \d*[,]?\d*  [}]    
+// `;
+
+// rep is not used here (only [*+?]?),
+// to use rep would require extra parse engine instructions,
+// but the {n,m} is allowed on chs and esc, see grit_actions.
+
+// quo (quoted strings) skip leading white-space, see grit_actions.
+// ~ prefix on a regex component to skip leading white-space.
+
+// no way to use a /xxx/i case insensitive regex
+// it could be added to quo, but it wouldn't work in reg groupings.
+
+// -- parser code for grit_rules --------------------------------------
+
+// The parser is a byte-code style interpreter, but uses a
+// higher level array data structure with string values.
+
+/* parser instruction codes:
+
+    ["^", "regex"]      match regexp
+    ["=", rule]         call rule by name.
+    [",", a, b, c, ...] sequence of instruction codes, all to succeed.
+    ["/", a, b, c, ...] altrnatives, first to succeed.
+    ["+", x]            matches one or more x, or fails.
+    ["*", x]            matches any number of x, none matches "".
+    ["?", x]            optional match: x / ""
+    ["&", x]            lookahead: "" if x matches, else fails.
+    ["!", x]            negation: fails if x matches, else "".
+ 
+    The parser compiles rule names to rule indexes on the fly, and also
+    compiles regexp's on the fly (to keep the code simple, and portable).
+
+    The parser code can be exported as JSON.
+*/
+
+const grit_code = [
+    {   name: "grammar", // grammar = rule+
+        code: ["+",["=","rule"]] },
+
+    {   name: "rule", // rule = name "=" expr ws act?
+        code: [",",["=","name"],["^","\\s*="],["=","expr"],
+                        ["=", "ws"],["?",["=","act"]]] },
+
+    {   name: "expr", // expr = seq ("/" seq)*
+        code: [",",["=","seq"],["*",[",",["^","\\s*/"],["=","seq"]]]] },
+
+    {   // seq = (ws [&!]? term [*+?]?)*
+        name: "seq",
+        code: ["*",[",",["=","ws"],["^","[&!]?"],["=","term"],["^","[*+?]?"]]] },
+
+    {   name: "term", // term = ref / match / group
+        code: ["/",["=","ref"],["=","match"],["=","group"]] },
+
+    {   name: "name", // name = ws \w+
+        code: [",",["^","[\\s]*"],["^","[\\w]+"]] },
+
+    {   name: "ref", // ref = name !\s*=
+        code: [",",["=","name"],["!",["^","[\\s]*="]]] },
+
+    {   name: "match", // match = quote / regex
+        code: ["/",["=","quote"],["=","regex"]] },
+
+    {   name: "quote", // quote = '"' [^"]* '"' / "'" [^']* "'"
+        code: ["^","\\s*((?:'[^']*'|\"[^\"]*\")[\\w]*)"] },
+
+    {   name: "regex", // regex = &[[\\] (rex / par)*
+        code: [",",["&",["^","[[\\\\]"]],["*",["/",["=","rex"],["=","par"]]]] },
+
+    {   name: "rex", // rex = [\s[()]+|[[]([^\]\\]*([\\][^])?)*[\]]
+        code: ["^","[^\\s[()]+|[[](?:[^\\]\\\\]*(?:[\\\\][^])?)*[\\]]"] },
+
+    {   name: "par", // par = [(] ([^()]* par?)* [)]
+        code: [",",["^","[(]"],["*",[",",["^","[^()]*"],["?",["=","par"]]]],["^","[)]"]] },
+
+    {   name: "group", // group = "(" expr ")"
+        code: [",",["^","\\s*\\("],["=","expr"],["^","\\s*\\)"]] },
+
+    {   name: "act", // act = ":" lines
+        code: [",",["^","\\s*:"],["^","[^\\n\\r]*"], // line = [^\n\r]*
+                ["*",[",",["^","\\s*"],["!",["^","\\S+\\s*="]],
+                          ["^","[^\\n\\r]*"]]]] },
+
+    {   name: "ws", // ws = \s* 
+        code: ["^","\\s*"] }
+];
+
+resolve_code(grit_code);
+
+// -- compile peg rules into parser instruction codes --------------------
+
+const grit_actions = { // semantic actions for parse tree nodes...
+
+    // grammar = rule+
+    "grammar": (rs) => rs,
+
+    // rule = name "=" expr ws act?
+    "rule": ([name, _, code, ws, action]) => {
+        return {name, code, action};
+    },
+
+    // expr = seq ("/" seq)*
+    "expr": ([seq, alts]) => {
+        if (alts.length === 0) {
+            return seq;
+        } else {
+            var seqs = alts.map(([_, seq]) => seq)
+            return ["/", seq, ...seqs];
+        }
+    },
+
+    // seq = (ws [&!]? term [*+?]?)*
+    "seq": (xs) => {
+        var ts = xs.map(([ws, pred, term, rep]) => {
+            if (rep) { term = [rep, term]; }
+            if (pred) { term = [pred, term];}
+            return term;
+        })
+        if (ts.length === 1) return ts[0];
+        return [",", ...ts];
+    },
+
+    // term = ref / match / group
+    "term": (x) => x,
+
+    // name = ws \w+
+    "name": ([_, name]) => name,
+
+    // ref = name !\s*=
+    "ref":  ([name, _]) => ["=", name, null],
+
+    // match = quote / regex
+    "match": (x) => x,
+
+    // quote = '"' [^"]* '"' / "'" [^']* "'"
+    "quote": (str) => { // quote => regex: \s*("...")
+        qt = str.slice(1,-1);
+        return ["^","\\s*("+esc_regex(qt)+")"];
+    },
+
+    // regex   = &[[\\] (rex / par)*
+    "regex": ([_, rs]) => ["^", rs.join('')],
+
+    // rex = [^\s[()]+|[[]([^\]\\]*([\\][^])?)*[\]]
+    "rex": (x) => x,
+
+    // par = [(] ([^()]* par?)* [)]
+    "par": ([lp, ps, rp]) => { // par? => p, will be already done..
+        var xps = ps.map(([x, p]) => p? x+p : x);
+        return lp + xps.join('') + rp; 
+    },
+
+    // group = "(" expr ")"
+    "group": ([_, expr]) => expr,
+
+    // act = ":" lines
+    "act": ([_, line, lines]) => {
+        return string([line, lines]);
+    },
+
+    // ws = \s*
+    "ws": (s) => s
+
+} // grit_actions
+
+function esc_regex(str) {
+    return str.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+}
+
+function rules_map(code) {
+    return code.reduce((rm, rule, idx) => {
+        rm[rule.name] = idx; return rm; }, {});
+}
+
+function resolve_code(code) {
+    var name_idx = rules_map(code);
+
+    function resolve (op) {
+        if (!Array.isArray(op)) return op;
+        if (op[0] === "^") {
+            op[2] = op[2] || new RegExp(op[1],"y"); // sticky flag
+            return op;
+        }
+        if (op[0] === "=") {
+            op[2] = name_idx[op[1]];
+            if (!op[2] && op[2]!==0) {
+                throw new Error("*** missing rule '"+op[1]+"' ... ")
+            }
+            return op;
+        }
+        return op.map((x) => resolve(x));
+    }
+    var coded = code.map((rule, idx) => {
+        return resolve(rule.code);
+    });
+
+    return code;
+}
+
+
+// -- built-in semantic actions ---------------------------------------------
+
+
+const std_actions = {
+
+    xfx: (result) => { // a (_ b)* => [a,b,c,...]
+        var [a, bs] = result;
+        return bs.reduce((y, [_, b]) => y.concat(b), [a]);
+    },
+
+    xfy: (result) => { // a (op b)* => [op,x,y]
+        function xfy(x, ys) {
+            if (ys.length === 0) return x;
+            var [op, y] = ys[0];
+            return [op, x, xfy(y, ys.slice(1))]
+        }
+        var [x, ys] = result;
+        return xfy(x, ys);
+    },
+ 
+    yfx: (result) => { // a (op b)* => [op,y,x]
+        var [a, bs] = result;
+        return bs.reduce((y, [op, b]) => [op, y, b], a)
+    },
+
+    yfy: (result) => { // a (op b)* => [a,op,b,op,c,...]
+        var [a, bs] = result;
+        return bs.reduce((y, b) => y.concat(b), [a])
+    },
+
+    flatten: (xs) => flatten(xs),
+
+    string: (xs) => string(xs),
+
+    number: (xs) => number(xs),
+
+    x: (result) => result,
+    n: (result) => Number(result),
+    _: (result) => ""
+
+}
+
+function flatten(xs) {
+    return Array.isArray(xs)?
+        xs.reduce((y,x) => y.concat(flatten(x)),[]) : xs;
+}
+
+function string(xs) {
+    return Array.isArray(xs)? flatten(xs).join('') : xs;
+}
+
+function number(xs) {
+    return Number(string(xs));
+}
+
+// -- parser -- string-code interpreter ------------------------------------
+
+function parser (code, input, actions={}, options={}) {
+    var pos = 0;
+    var inRule = "start"; // rule trace 
+    var ruleStack = [];
+    var maxPos = 0; // high water mark
+    var maxRule= "none"; // inRule at maxPos
+    var runOps = 0;
+    var maxOps = 10000; // run away recursion check
+
+    if (!code) {
+        return report("missing grammar rule code...");
+    }
+
+    var start_name = code[0].name;
+    var start = ["=", start_name, 0];
+
+    if (typeof input !== "string") {
+        try {
+            input = String.raw(input);
+        } catch(err) {
+            input = '';
+            return report("input is not a string...");
+        }
+    }
+
+    if (typeof actions === 'function') {
+        actions = { "?": actions } // catch all
+    }
+
+    if (options.trace) console.log("trace", start_name)
+
+    var result = run(start); // run the parser engine...
+
+    if (result === null) {
+        return report("failed");
+    }
+    if (pos < input.length && !input.slice(pos).match(/^\s+$/)) {
+        if (options.replay) replay();
+        return report("fell short");
+    }
+    return result;
+
+    // -- code engine -------------------------------------------
+
+    function run(op) {
+
+        if (runOps += 1 > maxOps) {
+            return report("run away recursion...");
+        }
+
+        switch (op[0]) {
+
+        case '^': // ["^", src, regex]
+            var regex = op[2]; 
+            regex.lastIndex = pos; // using regex.y sticky flag
+            var mx = regex.exec(input);
+            var trace = options.trace;
+            if (trace) {
+                if (typeof trace !== "string" || trace === inRule) {
+                    var span = pos;
+                    span += mx? ".."+(pos+mx[0].length) : ""
+                    var match = mx? "=>"+mx[0] : "!";
+                    console.log(span,inRule,regex,match);
+                }
+            }
+            if (!mx) return null;
+            pos += mx[0].length;
+            if (pos > maxPos) { 
+                maxPos = pos; 
+                maxRule = inRule;
+            }
+            return mx[1]||mx[0]; // used to skip white-space prefix
+
+        case '=': // ["=", name, idx]
+            var idx = op[2];
+            var rule = code[idx];
+            if (!rule) { // bad grammar ...
+                return report("missing rule "+idx+": '"+op[1]+"' ...");
+            }
+            ruleStack.push(inRule)
+            inRule = op[1];
+            var start = pos;
+            var result = run(rule.code);
+            inRule = ruleStack.pop();
+            if (result === null) {
+                pos = start;
+                return null;
+            }
+            var {name, action} = rule;
+            var val = run_action(result, {name, action, pos, input, posit});
+            if (val !== null) return val;
+            pos = start; // fail
+            return null;
+
+        case ',': // [",", ..., seq, ... ]
+            var start = pos;
+            var res = [];
+            var i = 1;
+                while (i < op.length) {
+                var temp = run(op[i]);
+                if (temp === null) {
+                    pos = start;
+                    return null;
+                }
+                res.push(temp);
+                i += 1;
+            }
+            return res;
+
+        case '/': // ["/", ..., alt, ... ]
+            var start = pos;
+            var res = null; // fail if no alt
+            var i = 1;
+            while (i < op.length) {
+                res = run(op[i]);
+                if (res !== null && pos > start) {
+                    return res;
+                }
+                pos = start;
+                i += 1;
+            }
+            return res;
+
+        case '*':
+            var start = pos;
+            var temp = run(op[1]);
+            if (temp === null) return [];
+            var res = [temp];
+            while (pos > start) {
+                start = pos;
+                temp = run(op[1]);
+                if (temp === null) break;
+                res.push(temp);
+            }
+            return res;
+
+        case '+':
+            var start = pos;
+            var temp = run(op[1]);
+            if (temp === null) return null;
+            var res = [temp];
+            while (pos > start) {
+                start = pos;
+                temp = run(op[1]);
+                if (temp === null) break;
+                res.push(temp);
+            }
+            return res;
+
+        case '?':
+            var res = run(op[1])
+            if (res === null) return "";
+            return res;
+
+        case '!':
+            var start = pos
+            var res = run(op[1])
+            pos = start
+            if (res === null) return "";
+            return null;
+
+        case '&':
+            var start = pos
+            var res = run(op[1])
+            pos = start
+            if (res !== null) return "";
+            return null;
+
+        default: // should never happen...
+		    throw new Error("*** Undefined parse code op: "+JSON.stringify(op));
+        }
+    } // run
+
+    function report(msg) {
+        var at = pos + (maxPos>pos? ".."+maxPos : "") + " of " + input.length;
+        var pre = pos<16? input.slice(0,pos) : "..."+input.slice(pos-13,pos);
+        var show = pre + input.slice(pos,pos+40);
+        show = show.replace(/[\x00-\x1f]/g,"¬")
+        if (input.length > pos+40) show += "..."
+        var cursor = "";
+        for (var i=0; i < pre.length; i+=1) cursor += " ";
+        cursor += "^";
+        var max = maxPos-pos>40? 42 : maxPos;
+        for (var i=pos+1; i < max; i+=1) cursor += " ";
+        cursor += "^";
+        var report = "*** grammar '"+start_name+"' parse "+msg+
+                    " after: '"+maxRule+"' at: "+at+"\n"+
+                        show+"\n"+cursor;
+        if (!options || (!options.silent && !options.console)) {
+            throw new Error(report);
+        } else if (options.console && !options.silent) {
+            console.log(report);
+        } else { // silent reporting...
+            options.report = report;
+        }
+        return null;
+    }
+
+    function replay() {
+        try {
+            parser(code, input, actions, {trace:true});
+        } catch(err) {
+            // console.log(err);
+        }
+    }
+
+    function posit(n) {
+        console.log("posit", pos, n);
+        pos = n;
+    }
+
+    function run_action(result, parse) {
+        var fn = null;
+        var {name, action} = parse; // {name, action, pos, input, posit}
+        if (action) {
+            var ax = action.match(/^\s*(\S+)/);
+            act = ax? ax[1] : "";
+            fn = actions[act] || std_actions[act];
+            if (!fn) { // synthetic std act...
+                if (act.match(/^[_x]+$/) && Array.isArray(result)) {
+                    var res = [];
+                    result.forEach((x, i) => {
+                        var k = act[i];
+                        if (k === "x") res.push(x);
+                    });
+                    if (res.length === 1) return res[0];
+                    return res;
+                }            
+            }
+        } // action
+        fn = fn || actions[name] || actions["?"];
+        if (fn) {
+            try {
+                return fn(result, parse);
+            } catch(err) {
+                report("Bad action for '"+name+"':\n"+err);
+            }
+        }
+        return [name, result] // default result..
+    }
+
+
+} // parser
+
+// -- grammar_parser --------------------------------------------------------
+
+function grammar_parser (grammar, actions) {
+
+    let code = parser(grit_code, grammar, grit_actions)
+
+    if (!code) return null;
+    
+    resolve_code(code)
+
+    function parse(input, options) {
+        return parser(code, input, actions, options);
+    }
+
+    return Object.freeze({
+        parse, grammar, actions, code
+    })
+}
+
+// module.exports = grammar_parser;
+// expose grammar_parser ----------------------------------------------
+
+if (typeof module !== 'undefined' && typeof exports === 'object') {
+    module.exports = grammar_parser;
+} else if (typeof define === 'function' && define.amd) {
+    define(function() { return grammar_parser; });
+} else {
+    this.grammar_parser = grammar_parser;
+}
+
+}).call(function() {
+return this || (typeof window !== 'undefined' ? window : global);
+}()); // outer funtion name-space wrapper
+
+;
+</script> 
+<style>
+td.demo-1, .demo-eg { margin-right:10pt; background:whitesmoke;
+                       padding: 0pt 10pt; }
+td.demo-2 { padding: 0pt 10pt; }
+</style>
+<script type="text/javascript">
+    var moko = window.moko || (window.moko = {});
+    moko.sandbox = {};
+    moko.sandbox.write = (txt) => res += JSON.stringify(txt)
+    var sandbox = moko.sandbox
+    sandbox.RESET = (i) => {
+	    var src = sandbox.textarea_src(i)
+        var example = sandbox.example(i, 0)
+	    src.value = example.value
+	    sandbox.RUN(i);
+    }
+    sandbox.RUN = (i) => {
+        var src = sandbox.textarea_src(i)
+        var dst = sandbox.textarea_dst(i)
+        var res = "";
+        try {
+            var verbs = {
+                // grit: window.Grit,
+                grammar_parser: window.grammar_parser, // replaces grit,
+                write: (...args) => {
+                    res += args.map((arg)=>
+                        JSON.stringify(arg)).join(' ')+"\r\n\r\n";
+                },
+                print: (...args) => {
+                    res += args.map((arg)=>
+                        JSON.stringify(arg,null,2)).join(' ')+"\r\n\r\n";
+                }    
+            }
+            var keys = Object.keys(verbs);
+            var vals = keys.map((k)=> verbs[k])
+            var fn = new Function(...keys, src.value)
+            fn(...vals);
+        } catch(err) {
+            res = err
+        }
+        dst.value = res;
+    }
+    sandbox.SELECT = (i) => {
+        var x = document.getElementById("sandbox-select-"+i).value;
+        var example = sandbox.example(i, x-1)
+        var src = sandbox.textarea_src(i)
+        src.value = example.value
+        sandbox.RUN(i);
+    }
+    sandbox.textarea_src = (i) => document.getElementById('sandbox-src-'+i);
+    sandbox.textarea_dst = (i) => document.getElementById('sandbox-dst-'+i);
+    sandbox.example = (i, n) => document.getElementById('sandbox-eg-'+i+'-'+n);
+</script>
+<style>
+textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
+</style>
+
+</head>
+<body>
+<h1><span id="sect-Grammar Paser Reference Guide"></span>Grammar Paser Reference Guide</h1>
+<p>The JavaScript implementation of the <code>grammar_parser</code> function is a single file with no dependencies. It uses the standard RegExp constructor to build its regex components.</p>
+<p>Example usage, with a local copy of the <code>grammar-parser.js</code> file:</p>
+<pre class='demo-eg'>    const grammar_parser = require("./grammar-parser.js");
+
+    const cvs_rules = String.raw`
+        table  = row+
+        row    = cell ("," cell)* nl?
+        cell   = [^,\n\r]*
+        nl     = [\n] / [\r][\n]?
+    `;
+
+    const cvs = grammar_parser(cvs_rules);
+
+    var test = `
+    a1,b1,c1
+    a2,b2,c3
+    a3,b3,c3
+    `;
+
+    var parse_tree = cvs.parse(test);
+
+    console.log(JSON.stringify(parse_tree, null, 2));
+</pre>
+<h2><span id="sect-PEG Rules"></span>PEG Rules</h2>
+<p>A grammar rule names a PEG expression which may contain string matching components.</p>
+<p>An expression <code>e</code> may be either:</p>
+<ul>
+<li>a rule name reference -- to match the expression defined by that rule.</li>
+<li>a string match component -- to directly match the input text.</li>
+</ul>
+<p>If <code>e1</code> and <code>e2</code> are PEG expressions, then so too is:</p>
+<ul>
+<li><code>e1 e2</code>    -- to match a sequence of e1 followed by e2</li>
+<li><code>e1 / e2</code>  -- which matches e1, or e2 if and only if e1 fails</li>
+<li><code>( e1 )</code>   -- to form a group</li>
+</ul>
+<p>The choice <code>e1 / e2</code> will only try <code>e2</code> if <code>e1</code> fails (first match wins), and there is no backtracking.</p>
+<ul>
+<li><code>e1 / e1 e2</code>  -- will therefore never match the second alternative.</li>
+</ul>
+<p>An empty match is not a failure, so: <code>e1* / e2</code> should never try to match e2. But in practice it is very easy to make this kind of mistake, and there seems to be no practical reason not to treat a match of nothing the same as a failure. So this is treated as a special case, and the parser will try to match <code>e2</code> if <code>e1</code> has not matched any input.</p>
+<p>Any PEG expression e can be given a predicate prefix:</p>
+<ul>
+<li><code>&amp;e</code> returns <code>[]</code> if e matches, else it fails. No input is consumed.</li>
+<li><code>!e</code> returns <code>[]</code> if e does NOT match, else it fails. No input is consumed.</li>
+</ul>
+<p>Any PEG expression e can be given a repeat suffix:</p>
+<ul>
+<li><code>e*</code> results in an array with zero or more matches.</li>
+<li><code>e+</code> results in an array with one or more matches.</li>
+<li><code>e?</code> will either match <code>e</code> or an empty array <code>[]</code>.</li>
+</ul>
+<p>The result of a repeat is always the longest match and no other.</p>
+<ul>
+<li><code>e* e</code>  -- will therefore always fail to match any input.</li>
+</ul>
+<p>The binding strength or precedence is (low to high):</p>
+<ul>
+<li><code>e1 / e2</code></li>
+<li><code>e1 e2</code></li>
+<li><code>&amp;e !e</code></li>
+<li><code>e* e+ e?</code></li>
+</ul>
+<p>So, for example:</p>
+<ul>
+<li><code>e1 e2* / e3 (e4 / e5+)* =&gt; ((e1 e2*) / (e3 (e4 / e5+)*))</code></li>
+</ul>
+<p>The result from a rule, by default, is an array with the rule name as the first element and the result of matching its expression (the body of the rule) as the second element:</p>
+<ul>
+<li><code>[rule_name, rule_result]</code></li>
+</ul>
+<h2><span id="sect-String Matching Components"></span>String Matching Components</h2>
+<p>A string matching component in a grammar rule can be either:</p>
+<ul>
+<li>
+<p>A literal quoted &quot;string&quot; or 'string' to be matched.</p>
+<ul>
+<li>there are no escape codes.</li>
+<li>any leading white-space will be skipped.</li>
+</ul>
+</li>
+<li>
+<p>A regex to match a regular expression.</p>
+<ul>
+<li>a regex must start with <code>[ or \</code></li>
+<li>for example: <code>[abc] or \d</code></li>
+<li>suffix repeats can be included in the regex, eg: <code>[abc]* or \d+</code></li>
+<li>a regex will not skip leading white-space</li>
+<li>after the start the regex is not restricted, it can be almost anything</li>
+<li>for example: <code>[abc]*(\s*\d+)*</code></li>
+<li>the complete regex is evaluated as a single regular expression</li>
+<li>a regex can not contain any white-space, except in brackets, eg: <code>[ \t]*</code></li>
+<li>the result is the full matched string, or the first capture group if there is one.</li>
+</ul>
+</li>
+</ul>
+<p>Note that quoted literal <code>&quot;x&quot;</code> and the regex <code>[x]</code> will both match a literal character <code>x</code>, but  <code>&quot;x&quot;</code> will skip any leading white-space, so <code>&quot;x&quot;</code> is equivalent to the regex: <code>\s*(x)</code></p>
+<p>The regex components should be kept simple, such as a char-set eg: <code>[abc]</code>, or a repeated char-class eg: <code>\d+</code>. There is no loss of expressive power in keeping the regex matches simple since they are components in a larger PEG grammar. PEG logic can be used for lookahead tests eg: <code>&amp;x</code> for positive lookahead tests, or <code>!x</code> for negative lookahead tests.</p>
+<p>If necessary a semantic action can be used as an escape hatch to match anything.</p>
+<p>Simple regex components also eliminates troublesome issues with some regular expression implementations, see [Russ Cox] for details.</p>
+<h2><span id="sect-Grammar Grammar"></span>Grammar Grammar</h2>
+<p>The grammar rules can define themselves. Here is a minimal grammar that is sufficient to define itself and parse itself:</p>
+<pre class='demo-eg'>    grammar = (ws rule ws)+
+    rule    = name ws [=] expr
+
+    expr    = seq (ws [/] seq)*
+    seq     = ([ ]* term [*+?]?)*
+    term    = name / match / group
+
+    name    = [\w]+
+    match   = [[] [^\x5D]+ [\x5D] [*+?]?
+    group   = [(] expr [)]
+
+    ws      = [\s]*
+</pre>
+<p>This grammar only accepts simple regex char-set string match components.</p>
+<p>Here is the full <code>grammar_parser</code> definiton:</p>
+<pre class='demo-eg'>    grammar = rule+
+    rule    = name "=" expr ws act?
+
+    expr    = seq ("/" seq)*
+    seq     = (ws [&amp;!]? term [*+?]?)*
+    term    = ref / match / group
+
+    name    = ws \w+
+    ref     = name !\s*=
+    match   = quote / regex
+    quote   = '"' [^"]* '"' / "'" [^']* "'"
+    regex   = &amp;[[\\] (rex / par)*
+    rex     = [^\s[()]+|[[]([^\]\\]*([\\][^])?)*[\]]
+    par     = [(] ([^()]* par?)* [)]
+    group   = "(" expr ")"
+
+    act     = ":" [ \t]* \w+ lines
+    lines   = line (\s* !\S+\s*= line)*
+    line    = [^\n\r]* 
+    ws      = \s*  
+</pre>
+<h2><span id="sect-Semantic Actions"></span>Semantic Actions</h2>
+<p>A semantic action function name may be appended to to a rule with a <code>:</code> separator.</p>
+<p>Custom semantic action functions can be defined in the host programming languiage and passed into the the grammar_parser function along with the grammar rules.</p>
+<p>If the rule has an attached semantic action function name that matches a custom function then that function will be given the rule match results. The result from the rule will then be the result of the semantic action function.</p>
+<p>If the semantic action returns <code>null</code> then the rule will fail, any other result can be used as the rule result.</p>
+<p>If the rule has a semantic action function name that does not match a custom function then it may match a standard built-in function name.</p>
+<p>If a rule has no attached semantic action, but there is a custom fuction with the same name as the rule, then this custom function will be applied to the results of this rule.</p>
+<h3><span id="sect-Built-in Functions"></span>Built-in Functions</h3>
+<p>The built-in functions:</p>
+<ul>
+<li>yfx returns a left associative tree.  e.g.  <code>1+2+3 =&gt; (1+2)+3</code></li>
+<li>xfy returns a right associative tree.  e.g. <code>2^3^4 =&gt; 2^(3^4)</code></li>
+<li>xfx returns a flat list excluding the operators. e.g. <code>1+2+3 =&gt; 1 2 3</code></li>
+<li>yfy returns a flat list including the operators. e.g. <code>1+2+3 =&gt; 1+2+3</code></li>
+<li>string converts the result into a string.</li>
+<li>number converts the result into a number.</li>
+<li>x is any result (without the default rule name label).</li>
+<li>_ means ignore this result.</li>
+</ul>
+<p>The <code>yfx</code> and <code>xfy</code> actions generate parse tree nodes in this form:</p>
+<pre class='demo-eg'>    [rule_name, left_tree, right_tree]
+</pre>
+<p>Here they are used to generate the desired parse tree for our arithmetic expression grammar:</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(1)' >Example 1</button>
+    <button onClick='sandbox.RUN(1)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-1' cols=52 rows=18>const arith = String.raw`
+  expr   = factor ([+-] factor)*   : yfx
+  factor = term ([*/] term)*       : yfx
+  term   = prime ("^" prime)*      : xfy
+  prime  = numb / group            : x
+  group  = "(" expr ")"            : _x_
+  numb   = \d+                     : number
+`;
+
+const expr = grammar_parser(arith);
+
+write( expr.parse(`1+2+3+4+5`) );
+
+write( expr.parse(`2^3^4`) );
+
+write( expr.parse(`1+2+3*(4+5)-6`) );
+
+</textarea>
+  <textarea id='sandbox-dst-1' cols=52 rows=18 ></textarea>
+  
+      <textarea id='sandbox-eg-1-0' hidden>const arith = String.raw`
+  expr   = factor ([+-] factor)*   : yfx
+  factor = term ([*/] term)*       : yfx
+  term   = prime ("^" prime)*      : xfy
+  prime  = numb / group            : x
+  group  = "(" expr ")"            : _x_
+  numb   = \d+                     : number
+`;
+
+const expr = grammar_parser(arith);
+
+write( expr.parse(`1+2+3+4+5`) );
+
+write( expr.parse(`2^3^4`) );
+
+write( expr.parse(`1+2+3*(4+5)-6`) );
+
+</textarea>
+  <script>sandbox.RUN(1)</script><br>
+
+<p>The tree structures:</p>
+<pre><code class="language-box">              +                 ^          
+             / \               / \         
+  yfx:      +   4      xfy:   1   ^        xfx:  1 2 3 4    yfy:  1 + 2 + 3 + 4 
+           / \                   / \
+          +   3                 2   ^    
+         / \                       / \
+        1   2                     3   4     
+</code></pre>
+<p>The semantic actions can be thought of as a sort of type specification for the rule result, which can be appended to the end of the rule.</p>
+<h3><span id="sect-Custom Functions"></span>Custom Functions</h3>
+<p>Custom functions are written as methods in an object that is passed into the <code>grammar_parser</code> function.</p>
+<p>For development debugging the action function can be used to log the results matched by a rule.</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(2)' >Example 2</button>
+    <button onClick='sandbox.RUN(2)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-2' cols=52 rows=19>const rules = String.raw`
+    S    =  "a" [b]+ 'c'* nums
+    nums = (\s* \d+)*
+`;
+
+const actions = {
+    S: (x) => {
+        console.log('x=',x);
+        // return null; // rule fails
+        return x;
+    }
+};
+
+const test = grammar_parser(rules, actions);
+
+var p = test.parse("abbcc 123 456");
+
+write(p);
+</textarea>
+  <textarea id='sandbox-dst-2' cols=52 rows=19 ></textarea>
+  
+      <textarea id='sandbox-eg-2-0' hidden>const rules = String.raw`
+    S    =  "a" [b]+ 'c'* nums
+    nums = (\s* \d+)*
+`;
+
+const actions = {
+    S: (x) => {
+        console.log('x=',x);
+        // return null; // rule fails
+        return x;
+    }
+};
+
+const test = grammar_parser(rules, actions);
+
+var p = test.parse("abbcc 123 456");
+
+write(p);
+</textarea>
+  <script>sandbox.RUN(2)</script><br>
+
+<p>An example with semantic functions that translate the parse tree:</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(3)' >Example 3</button>
+    <button onClick='sandbox.RUN(3)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-3' cols=52 rows=22>const arith = String.raw`
+  expr   = factor ([+-] factor)*
+  factor = term ([*/] term)*
+  term   = \d+ / "(" expr ")"
+`;
+
+const evaluate = {
+  expr:   ([f, fs]) =>
+            fs.reduce((y, [op, x]) =>
+              op === '+'? y+x : y-x, f),   
+  factor: ([t, ts]) =>
+            ts.reduce((y, [op, x]) =>
+              op === "*"? y*x : y/x, t),
+  term:   (x) => Number(x) || x[1]
+}
+
+const expr = grammar_parser(arith, evaluate);
+
+var e = expr.parse("1+2*(3+4)-5");
+
+write(e);
+</textarea>
+  <textarea id='sandbox-dst-3' cols=52 rows=22 ></textarea>
+  
+      <textarea id='sandbox-eg-3-0' hidden>const arith = String.raw`
+  expr   = factor ([+-] factor)*
+  factor = term ([*/] term)*
+  term   = \d+ / "(" expr ")"
+`;
+
+const evaluate = {
+  expr:   ([f, fs]) =>
+            fs.reduce((y, [op, x]) =>
+              op === '+'? y+x : y-x, f),   
+  factor: ([t, ts]) =>
+            ts.reduce((y, [op, x]) =>
+              op === "*"? y*x : y/x, t),
+  term:   (x) => Number(x) || x[1]
+}
+
+const expr = grammar_parser(arith, evaluate);
+
+var e = expr.parse("1+2*(3+4)-5");
+
+write(e);
+</textarea>
+  <script>sandbox.RUN(3)</script><br>
+
+<p>The action functions are called with two arguments:</p>
+<ul>
+<li>The rule result -- this is usually all that is required.</li>
+<li>A parse object: { name, action, pos, input, posit}
+<ul>
+<li>name: the rule name</li>
+<li>action: the action appended to the rule</li>
+<li>pos: the current input position (after the rule match)</li>
+<li>input: the input string being parsed</li>
+<li>posit(i): a function to set a new position.</li>
+</ul>
+</li>
+</ul>
+<p>The rule result is usually all that is needed, but the parse parameter gives the action function access to information that can be useful for debugging, or for experimental actions (extending the buit-in functions), or even to take over for special case parsing if necesserary.</p>
+<h2><span id="sect-Debug Trace"></span>Debug Trace</h2>
+<p>The <code>parse</code> function has a second argument for options, which can generate a trace log to help debug a grammar.</p>
+<p>Here is an example of using a trace:</p>
+<pre class='demo-eg'>    const arith = String.raw`
+        expr   = factor ([+-] factor)*
+        factor = term ([*/] term)*
+        term   = \d+ / "(" expr ")"
+    `;
+    const expr = grammar_parser(arith);
+
+    var e = expr.parse("1+2*(3+4)-5", {trace: true} );
+
+    0..1 term /\d+/y =>1
+    1 factor /[*\/]/y !
+    1..2 expr /[+-]/y =>+
+    2..3 term /\d+/y =>2
+    3..4 factor /[*\/]/y =>*
+    4 term /\d+/y !
+    4..5 term /\s*(\()/y =>(
+    5..6 term /\d+/y =>3
+    6 factor /[*\/]/y !
+    6..7 expr /[+-]/y =>+
+    7..8 term /\d+/y =>4
+    8 factor /[*\/]/y !
+    8 expr /[+-]/y !
+    8..9 term /\s*(\))/y =>)
+    9 factor /[*\/]/y !
+    9..10 expr /[+-]/y =>-
+    10..11 term /\d+/y =>5
+    11 factor /[*\/]/y !
+    11 expr /[+-]/y !
+
+</pre>
+<p>The numbers on the left are the input position of the match components with the name of the rule the component is in. Only the input match operations are logged in the trace, they usually give the most useful information, and a full trace of all rules can be very verbose.</p>
+
+</body>
+</html>
