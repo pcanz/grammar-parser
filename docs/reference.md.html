@@ -33,6 +33,8 @@ window.moko = {}
  */
 
 /*
+    See docs at: https://github.com/pcanz/grammar-parser
+    
     // Example usage:
 
     const grammar_parser = require("./grammar-parser.js");
@@ -102,37 +104,6 @@ const grit_rules = String.raw`
     line    = [^\n\r]* 
     ws      = \s*  
 `;
-
-// const grit_rules = String.raw`
-//     rules := rule+
-//     rule  := name ":"? "=" exp act?
-//     exp   := seq ("/" seq)*
-//     seq   := term+
-//     term  := [ \t]* [&!]? prime [*+?]?
-//     prime := ref / rex / group
-//     group := "(" exp ")"
-//     act   := ":" ":"? [ \t]* [^\n\r]*
-
-//     name  := [\s]* [\w]+
-//     ref   := [\w]+
-//     rex   := [~]? (quo / chs / esc / reg)+
-//     quo   := "'" [^']* "'" / '"' [^"]* '"'
-//     esc   := "\" [\S] [*+?]?
-//     chs   := "[" [^\x5D]+ "]" [*+?]?
-//     reg   := [(] (rex/reg/[/|])+ [)]
-
-//     rep   := [*+?] / [{] \d*[,]?\d*  [}]    
-// `;
-
-// rep is not used here (only [*+?]?),
-// to use rep would require extra parse engine instructions,
-// but the {n,m} is allowed on chs and esc, see grit_actions.
-
-// quo (quoted strings) skip leading white-space, see grit_actions.
-// ~ prefix on a regex component to skip leading white-space.
-
-// no way to use a /xxx/i case insensitive regex
-// it could be added to quo, but it wouldn't work in reg groupings.
 
 // -- parser code for grit_rules --------------------------------------
 
@@ -719,6 +690,7 @@ textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
 <body>
 <h1><span id="sect-Grammar Paser Reference Guide"></span>Grammar Paser Reference Guide</h1>
 <p>The JavaScript implementation of the <code>grammar_parser</code> function is a single file with no dependencies. It uses the standard RegExp constructor to build its regex components.</p>
+<p>The source code can be found at: <a href="https://github.com/pcanz/grammar-parser">https://github.com/pcanz/grammar-parser</a></p>
 <p>Example usage, with a local copy of the <code>grammar-parser.js</code> file:</p>
 <pre class='demo-eg'>    const grammar_parser = require("./grammar-parser.js");
 

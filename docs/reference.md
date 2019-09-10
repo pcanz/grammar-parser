@@ -2,6 +2,8 @@
 
 The JavaScript implementation of the `grammar_parser` function is a single file with no dependencies. It uses the standard RegExp constructor to build its regex components.
 
+The source code can be found at: <https://github.com/pcanz/grammar-parser>
+
 Example usage, with a local copy of the `grammar-parser.js` file:
 
 ``` eg
