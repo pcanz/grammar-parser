@@ -33,11 +33,18 @@ var date_match = date_regex.exec("3/4/2019");
 write(date_match); // ===>
 
 ```
-Now the same thing using a grammar rule: 
+
+The JavaScript `String.raw` function is used to avoid the need to escape any back-slash characters in the text string for the regular expression.
+
+In JavaScript the regular expression could of course be written as:
+``` eg
+    const date_regex = /(\d+)\/(\d+)\/(\d+)/;
+```
+The regular expression has been written as a text string so that it is directly comparable with this grammar rule version:
 
 ``` sandbox
 const date_rule = String.raw`
-  date = \d+ "/" \d+ "/" \d+
+  date = \d+ '/' \d+ '/' \d+
 `;
 
 const date_parser = grammar_parser(date_rule);
@@ -47,21 +54,20 @@ var date_match = date_parser.parse("3/4/2019");
 write(date_match); // ===>
 
 ```
-The JavaScript `String.raw` function is used to avoid the need to escape the back-slash characters in the text string for the grammar rules.
+The `grammar_parser` function corresponds to the `RegExp` object, it is a function that takes the grammar rules as input and returns a parser function.
 
-The `grammar_parser` function corresponds to the `RegExp` object, it is a function that takes the grammar rules as input and return a parser function.
-
-The date grammar rule is quite similar to the date regular expression rule, the big difference is that the grammar rule is given a name (before the `=` symbol), and the rule can use white-space to separate its component parts.
-
-The component parts can include a quotes string for a literal match, or a *regex* regular expression component. A regex uses the standard regular expression syntax, and accepts a back-slash character class, or a character-set in square brackets. The syntax inside the square brackets is the same syntax used in a standard regular expression.
-
-The resulting match is an array of string values, with the grammar rule name included as a label for the results that it matched.
+The date grammar rule is quite similar to the date regular expression rule, the big difference is that the grammar rule is given a name (before the `=` symbol), and the rule use white-space to separate the component parts.
+``` eg
+    regular expression:  (\d+)/(\d+)/(\d+)
+    grammar rule:        date = \d+ '/' \d+ '/' \d+
+```
+The component parts can include a quoted string for a literal match, or a *regex* regular expression. A regex component uses the standard regular expression syntax for a back-slash character class, or for a character-set in square brackets (not used in this example).
 
 The first example was written so that the grammar rule version corresponded closely to the regular expression version. But grammar rules really come into their own when the component parts are split out into separate named rules:
 
 ``` sandbox
 const mdy_rules = String.raw`
-    date  = month "/" day "/" year
+    date  = month '/' day '/' year
     day   = \d+
     month = \d+
     year  = \d+
@@ -75,7 +81,9 @@ write(date_match)
 ```
 This version matches exactly the same syntax, but the grammar rule names now indicate the semantic intent for this grammar. The parser function has been given a short name `mdy` to stand for the type of text it represents, but it could be given a longer name such as `date_parser`.
 
-The grammar rules are a text string, and there is only one function required, the `grammar_parser` function. The parser function is the result of applying this function to the grammar rules. The result of invoking the parser function is, by default, a simple JSON data structure with a nested array of string values. The rule names label the results that they matched.
+The grammar rules are a text string, and the `grammar_parser` function returns a parser function. The result of applying the parser function to an input text string is, by default, a simple JSON data structure with a nested array of string values. The rule names label the results that they matched.
+
+The date grammar in this example has has been kept as simple as possible to illustrate how things work. In practice a more accurate date grammar could be used, for example it could require that the year has exactly four digits and the month and day have only one or two digits.
 
 For a slightly larger example we will look at parsing a URI into its component parts. Of course there are library parser functions to decode a URI, and these are the best way to do this particular job. The URI format simply provides a familar example in order to demonstrate the grammar rule approach.
 
@@ -98,11 +106,11 @@ Now using a grammar:
 ``` sandbox
 const uri_rules = String.raw`
   uri    = scheme? host? path query? frag?
-  scheme = [^:/?#]+ ":"
-  host   = "//" [^/?#]*
+  scheme = [^:/?#]+ ':'
+  host   = '//' [^/?#]*
   path   = [^?#]*
-  query  = "?" [^#]*
-  frag   = "#" [^\s]*
+  query  = '?' [^#]*
+  frag   = '#' [^\s]*
 `;
 
 const URI = grammar_parser(uri_rules);
@@ -120,13 +128,13 @@ You can edit the examples and hit the `RUN` button to see what happens. For exam
 
 ##  Grammar Rules
 
-A grammar rule can match each item in a list with any number of items, whereas a regular expression must spell out each items to be matched.
+A grammar rule can be used to match a list with any number of items, whereas a regular expression is more restricted in that it must spell out each item to be matched.
 
 For example, to match numbers in an addition list the best we can do with a regular expression is something like this:
 
 ``` sandbox
 const sum_regex = String.raw
-  `^(\d+)(?:[+](\d+))?(?:[+](\d+))?(?:[+](\d+))?`;
+  `^(\d+)([+]\d+)?([+]\d+)?([+]\d+)?`;
 
 const sum = new RegExp(sum_regex);
 
@@ -135,11 +143,11 @@ var matched = sum.exec("1+2+3");
 write(matched)
 
 ```
-A grammar rule does not have this restriction, it can match any number of elements:
+A grammar rule does not have this restriction, it can match any number of items:
 
 ``` sandbox
 const sum_rule = String.raw`
-  add = ("+"? \d+)*
+  add = \d+ ("+" \d+)*
 `;
 
 const sum = grammar_parser(sum_rule);
@@ -148,11 +156,11 @@ var parsed = sum.parse( "1+2+3+4+5" );
 
 write(parsed);
 ```
-To use regular expressions for this kind of task really needs a program to repeatedly match a regular expression for each term. A grammar rule can do that efficiently, without the need for any extra program code.
+To use regular expressions for this kind of task really needs a program to repeatedly match a regular expression for a single item and build a list of the matched items. A grammar rule can do that efficiently, without the need for any extra program code.
 
-The result from a RegExp match is an array with the full match followed by the matched parts (the bracket capture groups).
+The result from the RegExp version is an array with the full match followed by the matched item (the bracket capture groups).
 
-The result from a grammar-parser is also an array of the matched parts, but in this case it is a nested tree structure, and the rule name is included as a label for the elements that it has matched. This tree structure can be called a parse tree or an abstract syntax tree.
+The result from a grammar-parser version is an array of the matched items, but in this case it is a nested tree structure, and the rule name is included as a label for the list of items that it has matched. This tree structure can be called a parse tree or an abstract syntax tree.
 
 The parse tree results may look a little verbose, but the tree structure is quite easy for an application program to navigate. There are no special programming object types involved, the parse tree is a simple JSON data structure that can be implemented in almost any programming language.
 
@@ -162,7 +170,7 @@ Now for a more realistic example, reading a file of CSV (Comma Separated Variabl
 const csv_grammar = String.raw`
     table = nl* row+
     row   = cells nl*
-    cells = cell ("," cell)*
+    cells = cell (',' cell)*
     cell  = [^,\n\r]*
     nl    = \n / \r\n?
 `;
@@ -173,7 +181,7 @@ var arr = csv.parse("a1,a2,a3\na2,b2,c2\n")
 
 write(arr)
 ```
-This is the first time we have seen a choice, using the `/` symbol. It serves the same purpose as the regex `|` choice, and it is used here for the mundane task of accepting different end-of-line conventions.
+This is the first time we have seen a choice operator, using the `/` symbol. It serves the same purpose as the regex `|` choice operator, and it is used here for the mundane task of accepting different end-of-line conventions.
 
 The first CSV grammar is a little too simple, it needs to be extended to allow a cell field to contain a comma character. We will follow the RFC 4180 standard (Common Format and MIME Type for CSV Files  October 2005). In this format fields that contain a comma are put inside quote marks, and inside the quotes any other quote marks are doubled. Here are the extended grammar rules:
 
@@ -181,7 +189,7 @@ The first CSV grammar is a little too simple, it needs to be extended to allow a
 const CSV_grammar = String.raw`
   csv     = nl* record+
   record  = fields nl*
-  fields  = field ("," field)*
+  fields  = field (',' field)*
   field   = escaped / txt
   escaped = esc+
   esc     = ["] [^"]* ["]
@@ -200,44 +208,46 @@ var output = CSV.parse(input);
 
 write(output);
 ```
-These grammar rules follow the grammar published for RFC 4180, and the resulting parse tree is getting more verbose. 
 
-We will soon see how to clean up the parse tree, but it is important to understand how to specify a correct grammar before doing anything else.
+The parse tree is getting hard to read, but it is a simple data structure that an application program can process without much difficulty. The parse tree can be simplified and formatted for easier reading if necessary, but the firt priority should be to ensure that the grammar rules recognize the desired syntax and match the input text correctly.
+
 
 ##  Grammar Rule Logic
 
 We have seen how the PEG logic in the grammar rules can match a sequence of components, or a make a choice between different alternative components, and components may have a repeat quailifier suffix. It is very similar to the way a regex works, aside from the white-space (that is otherwise insignificant) used to separate components in a grammar rule.
 
-However, the grammar rule operators are not exactly the same as the regex operators. In practice the differences are not usually too significant, but users do need to be aware that PEG logic is not the same as regex logic. A grammar rule can contain a hybrid mix of the two, but regex logic only applies inside a regex component, outside that its all PEG logic.
+However, the grammar rule operators are not exactly the same as the regex operators. Users do need to be aware that PEG logic is not the same as regex logic. A grammar rule can contain a hybrid mix of the two, but regex logic only applies inside a regex component, outside that its all PEG logic.
 
-The PEG `/` choice operator is simpler than a regular expression `|` choice, it will match the first choice it can, and it will only try to match the next choice if the preceeding choice has failed. There is no back-tracking to try again later
+The PEG `/` choice operator is simpler than a regular expression `|` choice operator, it will match the first choice it can, and it will only try to match the next choice if the preceeding choice has failed. There is no back-tracking to try again later
 
 The repeat operators: *, +, ? are also simpler than the regex operators since they can only match in one way, giving the maximum length match.
 
 A simple regex component with a repeat suffix can not be logically distinguished from a PEG repeat operator (since there is no backtracking to let the regex try again). It is best to keep regex components simple, but a more complex regex component can be used, and they may employ regex logic internally. A regex component returns a string match result.
 
-The lack of backtracking in the PEG logic makes it quite different from a regex. For example, here is a sequence of two regex components that will fail to match an input that the same two components could match, if they were combined into a single regex:
+The lack of backtracking in the PEG logic can make it quite different from a regex. For example, here is a sequence of two regex components in a grammar rule that will fail to match an input that the same two components could match, if they were combined into a single regex:
 
 ``` eg
-    [ab]+ [bc]+  -- fails on: "abb" (the [bc]+ has nothing left to match).
+    [ab]+ [bc]+  -- fails on: "abb" (the [bc]+ finds nothing left to match).
 
-    [ab]+[bc]+ -- will math: "abb" (the [bc]+ will match the last b).
+    [ab]+[bc]+ -- will math: "abb" (after backtracking the [bc]+ will match the last b).
 ```
-In this next example the second choice will never match anything:
+In this next PEG rule the second choice will never match anything:
 
 ``` eg
-    x y* / x z*  -- only the first choice will match.
+    x y* / x z*  -- only the first choice will ever match.
 
-    xy*|xz* -- as a regex the xz* may match some input.
+    xy*|xz* -- as a regex the xz* may match some input (after backtracking).
 ```
 A PEG choice is deterministic, if the first choice matches then the second choice will not be tried. The regex is nondeterministic, it can try both choices to find any possible match. The PEG determinism is exactly what we want in order to recognise unambiguous computer languages (as against ambiguous natural languages).
 
-Despite the fact that the grammar rule operators are simpler than their regular expression counterparts they can be used to match anything that a regular expression can match. Beyond that, rules can call each other recusively, which gives them the power to parse any context free language (i.e. the kind of syntax used by most computer programming languages).
+Despite the fact that the grammar rule operators are simpler than their regular expression counterparts they can be used to match anything that a regular expression can match.
+
+The grammar rules can go beyond a regular rexpression since they can call each other recusively. This gives them the added power to parse a nested syntax. In fact the PEG rules can be used to match the syntax for any context free language (i.e. the kind of syntax most computer programming languages are based on).
 
 
 ##  Parse Trees
 
-A grammar-parser makes the use of grammar rules a practical tool that can be used in every day programming to simplify the use of bare regular expressions. But grammar rules can be used for far more than regular expression matching.
+A grammar-parser makes grammar rules a practical tool that can be used to simplify the use of bare regular expressions in every day programming. But the grammar rules can be used for far more than regular expression matching.
 
 To illustrate that, here is a grammar for arithmetic expressions:
 
@@ -281,7 +291,7 @@ In fact the grammar parser machinery is well suited to processing the results of
 
 A grammar rule may be given an associated semantic action which is a function that is applied to the result of a successful rule match. The semantic action can examine the rule result and process it to derive a new result for the rule, or it can cause the rule to fail.
 
-There are some common semantic actions that the grammar parser provides as standard built-in functions. These standard function names extends the grammar rule language, in the same way that a programming language often provides common global built-in functions.
+There are some common semantic actions that the grammar parser can provide as standard built-in functions. These standard function names extends the grammar rule language, in the same way that a programming language often provides common global built-in functions.
 
 Custom semantic actions can be defined for a grammar, but these must be implemented in the host programming language, so unlike the grammar rules or the standard functions they are not portable across different implementations.
 
@@ -294,16 +304,16 @@ Our little arithmetic expression grammar uses rules with this very common idiom:
 ```
 The rule result can be transformed into a neat text-book parse tree using these built-in functions:
 
-* yfx returns a left associative tree.  e.g.  `1+2+3 => (1+2)+3`
-* xfy returns a right associative tree.  e.g. `2^3^4 => 2^(3^4)`
-* xfx returns a flat list excluding the operators. e.g. `1+2+3 => 1 2 3`
-* yfy returns a flat list including the operators. e.g. `1+2+3 => 1+2+3`
-* string converts the result into a string.
-* number converts the result into a number.
-* x is any result (without the default rule name label).
-* _ means ignore this result.
+* `yfx` -- returns a left associative tree.  e.g.  `1+2+3 => (1+2)+3`
+* `xfy` -- returns a right associative tree.  e.g. `2^3^4 => 2^(3^4)`
+* `xfx` -- returns a flat list excluding the operators. e.g. `1+2+3 => 1 2 3`
+* `yfy` -- returns a flat list including the operators. e.g. `1+2+3 => 1+2+3`
+* `string` -- converts the result into a string.
+* `number` -- converts the result into a number.
+* `x` -- is any result (without the default rule name label).
+* `_` -- means ignore this result.
 
-The `yfx` and `xfy` actions generate parse tree nodes in this form:
+The `yfx` and `xfy` functions generate parse tree nodes in this form:
 
 ``` eg
     [rule_name, left_tree, right_tree]
@@ -352,7 +362,7 @@ The idiomatic list structure generated by the `cells` rule can use the `xfx` fun
 const rules = String.raw`
     table = nl* row+            : _x
     row   = &[^] cells nl*      : _x_
-    cells = cell ("," cell)*    : xfx
+    cells = cell (',' cell)*    : xfx
     cell  = [^,\n\r]*           : x
     nl    = \n / \r\n?          : _
 `;
@@ -373,7 +383,9 @@ Cells are allowed to be empty, and that means that an extra row with a single em
 
 ##  Custom Semantic Action Functions
 
-Semantic actions are a great way to simplify the parse tree for an appliciation program. They can be pushed even further to embed the application processing into the parser. This enables the parser to be used as a string transform function that can return any desired data object.
+Semantic actions are a great way to simplify the parse tree for an appliciation program. If the built-in functions are not sufficient then custom functions can be defined for the grammar.
+
+Custom functions can be pushed even further to embed the application processing into the parser. This enables the grammar-parser to be used as a string transform function that can return any desired data object.
 
 A custom semantic function uses the host programming language. The semantic actions are organised as a set of named functions or methods, that are given to the `grammar_parser` function. The implementation can be resonably similar across languages, we will use JavaScript here.
 
@@ -391,7 +403,7 @@ const arith = String.raw`
 const evaluate = {
   expr:   ([f, fs]) =>
             fs.reduce((y, [op, x]) =>
-              op === '+'? y+x : y-x, f),   
+              op === "+"? y+x : y-x, f),   
   factor: ([t, ts]) =>
             ts.reduce((y, [op, x]) =>
               op === "*"? y*x : y/x, t),
@@ -425,36 +437,6 @@ The hope is that the use of a grammar parser will become a standard tool for eve
 
 Grammar rules make extemely neat and expressive specifications, and a grammar-parser makes it practical to embed grammar rules directly into program code.
 
-----------------
-
-##  Appendix
-
-Here is a basic grammar for the grammar rules used in the examples:
-
-``` sandbox
-const grit_rules = String.raw`
-    rules = rule+
-    rule  = name "=" alt
-    alt   = seq ("/" seq)*
-    seq   = term+
-    term  = prime [*+?]?
-    prime = ref / quote / chars / group
-    group = "(" alt ")"
-
-    name  = \s* \w+
-    ref   = [ \t]* \w+
-    quote = \s* ["] [^"]* ["]
-    chars = "[" [^\x5D]+ "]"
-`;
-
-const grit = grammar_parser(grit_rules);
-
-var ast = grit.parse(` S = "a" S? "b" `);
-
-print(ast)
-
-```
-Semantic actions are used to translate the `grit` parse tree into instruction codes for a byte-code style parser machine.
 
 ``` replace
 "   smart
