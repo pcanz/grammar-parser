@@ -218,7 +218,7 @@ const boot6 = String.raw`
 `;
 
 /*
-  boot6 is now used in grammar_parser.js -- as of 5 Sept 19.
+  boot6 is now used in grammar_parser.js -- as of 5 Sept 2019.
 */
 
 const grit6 = grammar_parser(boot6);

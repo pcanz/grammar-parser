@@ -1,4 +1,4 @@
-#   Grammar Paser Reference Guide
+#   Grammar Parser Reference Guide
 
 The JavaScript implementation of the `grammar_parser` function is a single file with no dependencies. It uses the standard RegExp constructor to build its regex components.
 
@@ -79,10 +79,6 @@ So, for example:
 
 *   `e1 e2* / e3 (e4 / e5+)*  =>  ((e1 e2*) / (e3 (e4 / e5+)*))`
 
-The result from a rule, by default, is an array with the rule name as the first element and the result of matching its expression (the body of the rule) as the second element:
-
-*   `[rule_name, rule_result]`
-
 
 ##  String Matching Components
 
@@ -90,7 +86,7 @@ A string matching component in a grammar rule can be either:
 
 *   A literal quoted "string" or 'string' to be matched.
     - there are no escape codes.
-    - any leading white-space will be skipped.
+    - double-quote marks (but not single-quote mrks) will skip surrounding white-space.
 
 *   A regex to match a regular expression.
     - a regex must start with `[ or \`
@@ -103,13 +99,14 @@ A string matching component in a grammar rule can be either:
     - a regex can not contain any white-space, except in brackets, eg: `[ \t]*`
     - the result is the full matched string, or the first capture group if there is one.
 
-Note that quoted literal `"x"` and the regex `[x]` will both match a literal character `x`, but  `"x"` will skip any leading white-space, so `"x"` is equivalent to the regex: `\s*(x)`
+Note that quoted literal `"x"` and the regex `[x]` will both match a literal character `x`, but  `"x"` will skip any surrounding white-space, so `"x"` is equivalent to the regex: `\s*(x)\s*`
 
-The regex components should be kept simple, such as a char-set eg: `[abc]`, or a repeated char-class eg: `\d+`. There is no loss of expressive power in keeping the regex matches simple since they are components in a larger PEG grammar. PEG logic can be used for lookahead tests eg: `&x` for positive lookahead tests, or `!x` for negative lookahead tests.
+    'a+b+c' => regex: [a]\+b\+c
+    "a+b+c" => regex: \s*(a\+b\+c)\s*
 
-If necessary a semantic action can be used as an escape hatch to match anything.
+The regex components should be kept simple, such as a char-set eg: `[abc]`, or a repeated char-class eg: `\d+`. There is no loss of expressive power in keeping the regex matches simple since they are components in a larger PEG grammar. PEG logic can be used for lookahead tests eg: `&x` for positive lookahead tests, or `!x` for negative lookahead tests, or a semantic action can be used.
 
-Simple regex components also eliminates troublesome issues with some regular expression implementations, see [Russ Cox] for details.
+Simple regex components also eliminate troublesome issues with some regular expression implementations, see [Russ Cox] for details.
 
 
 ##  Grammar Grammar
@@ -151,7 +148,7 @@ Here is the full `grammar_parser` definiton:
     par     = [(] ([^()]* par?)* [)]
     group   = "(" expr ")"
 
-    act     = ":" [ \t]* \w+ lines
+    act     = ":" lines
     lines   = line (\s* !\S+\s*= line)*
     line    = [^\n\r]* 
     ws      = \s*  
@@ -177,8 +174,8 @@ The built-in functions:
 
 * yfx returns a left associative tree.  e.g.  `1+2+3 => (1+2)+3`
 * xfy returns a right associative tree.  e.g. `2^3^4 => 2^(3^4)`
-* xfx returns a flat list excluding the operators. e.g. `1+2+3 => 1 2 3`
-* yfy returns a flat list including the operators. e.g. `1+2+3 => 1+2+3`
+* xfx returns a flat list including the operators. e.g. `1+2+3 => 1 + 2 + 3`
+* yfy returns a flat list including the operators. e.g. `1+2+3 => 1 2 3`
 * string converts the result into a string.
 * number converts the result into a number.
 * x is any result (without the default rule name label).
@@ -216,7 +213,7 @@ The tree structures:
 ``` box
               +                 ^          
              / \               / \         
-  yfx:      +   4      xfy:   1   ^        xfx:  1 2 3 4    yfy:  1 + 2 + 3 + 4 
+  yfx:      +   4      xfy:   1   ^        xfx:  1 + 2 + 3 + 4    yfy:  1 2 3 4 
            / \                   / \
           +   3                 2   ^    
          / \                       / \
@@ -281,12 +278,12 @@ write(e);
 The action functions are called with two arguments:
 
 *   The rule result -- this is usually all that is required.
-*   A parse object: { name, action, pos, input, posit}
+*   A parse object: `{ name, action, pos, input, posit}`
     - name: the rule name
-    - action: the action appended to the rule
-    - pos: the current input position (after the rule match)
-    - input: the input string being parsed
-    - posit(i): a function to set a new position.
+    - `action`: the action appended to the rule
+    - `pos`: the current input position (after the rule match)
+    - `input`: the input string being parsed
+    - `posit(i)`: a function to set a new position.
 
 The rule result is usually all that is needed, but the parse parameter gives the action function access to information that can be useful for debugging, or for experimental actions (extending the buit-in functions), or even to take over for special case parsing if necesserary. 
 

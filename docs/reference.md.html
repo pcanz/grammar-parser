@@ -229,7 +229,8 @@ const grit_actions = { // semantic actions for parse tree nodes...
     // quote = '"' [^"]* '"' / "'" [^']* "'"
     "quote": (str) => { // quote => regex: \s*("...")
         qt = str.slice(1,-1);
-        return ["^","\\s*("+esc_regex(qt)+")"];
+        if (str[0] === "'") return ["^",esc_regex(qt)];
+        return ["^","\\s*("+esc_regex(qt)+")\\s*"];
     },
 
     // regex   = &[[\\] (rex / par)*
@@ -297,11 +298,6 @@ function resolve_code(code) {
 
 const std_actions = {
 
-    xfx: (result) => { // a (_ b)* => [a,b,c,...]
-        var [a, bs] = result;
-        return bs.reduce((y, [_, b]) => y.concat(b), [a]);
-    },
-
     xfy: (result) => { // a (op b)* => [op,x,y]
         function xfy(x, ys) {
             if (ys.length === 0) return x;
@@ -317,9 +313,14 @@ const std_actions = {
         return bs.reduce((y, [op, b]) => [op, y, b], a)
     },
 
-    yfy: (result) => { // a (op b)* => [a,op,b,op,c,...]
+    xfx: (result) => { // a (op b)* => [a,op,b,op,c,...]
         var [a, bs] = result;
         return bs.reduce((y, b) => y.concat(b), [a])
+    },
+
+    yfy: (result) => { // a (_ b)* => [a,b,c,...]
+        var [a, bs] = result;
+        return bs.reduce((y, [_, b]) => y.concat(b), [a]);
     },
 
     flatten: (xs) => flatten(xs),
@@ -587,7 +588,7 @@ function parser (code, input, actions={}, options={}) {
                 report("Bad action for '"+name+"':\n"+err);
             }
         }
-        return [name, result] // default result..
+        return result // [name, result] // default result..
     }
 
 
@@ -688,7 +689,7 @@ textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
 
 </head>
 <body>
-<h1><span id="sect-Grammar Paser Reference Guide"></span>Grammar Paser Reference Guide</h1>
+<h1><span id="sect-Grammar Parser Reference Guide"></span>Grammar Parser Reference Guide</h1>
 <p>The JavaScript implementation of the <code>grammar_parser</code> function is a single file with no dependencies. It uses the standard RegExp constructor to build its regex components.</p>
 <p>The source code can be found at: <a href="https://github.com/pcanz/grammar-parser">https://github.com/pcanz/grammar-parser</a></p>
 <p>Example usage, with a local copy of the <code>grammar-parser.js</code> file:</p>
@@ -757,10 +758,6 @@ textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
 <ul>
 <li><code>e1 e2* / e3 (e4 / e5+)* =&gt; ((e1 e2*) / (e3 (e4 / e5+)*))</code></li>
 </ul>
-<p>The result from a rule, by default, is an array with the rule name as the first element and the result of matching its expression (the body of the rule) as the second element:</p>
-<ul>
-<li><code>[rule_name, rule_result]</code></li>
-</ul>
 <h2><span id="sect-String Matching Components"></span>String Matching Components</h2>
 <p>A string matching component in a grammar rule can be either:</p>
 <ul>
@@ -768,7 +765,7 @@ textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
 <p>A literal quoted &quot;string&quot; or 'string' to be matched.</p>
 <ul>
 <li>there are no escape codes.</li>
-<li>any leading white-space will be skipped.</li>
+<li>double-quote marks (but not single-quote mrks) will skip surrounding white-space.</li>
 </ul>
 </li>
 <li>
@@ -786,10 +783,12 @@ textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
 </ul>
 </li>
 </ul>
-<p>Note that quoted literal <code>&quot;x&quot;</code> and the regex <code>[x]</code> will both match a literal character <code>x</code>, but  <code>&quot;x&quot;</code> will skip any leading white-space, so <code>&quot;x&quot;</code> is equivalent to the regex: <code>\s*(x)</code></p>
-<p>The regex components should be kept simple, such as a char-set eg: <code>[abc]</code>, or a repeated char-class eg: <code>\d+</code>. There is no loss of expressive power in keeping the regex matches simple since they are components in a larger PEG grammar. PEG logic can be used for lookahead tests eg: <code>&amp;x</code> for positive lookahead tests, or <code>!x</code> for negative lookahead tests.</p>
-<p>If necessary a semantic action can be used as an escape hatch to match anything.</p>
-<p>Simple regex components also eliminates troublesome issues with some regular expression implementations, see [Russ Cox] for details.</p>
+<p>Note that quoted literal <code>&quot;x&quot;</code> and the regex <code>[x]</code> will both match a literal character <code>x</code>, but  <code>&quot;x&quot;</code> will skip any surrounding white-space, so <code>&quot;x&quot;</code> is equivalent to the regex: <code>\s*(x)\s*</code></p>
+<pre><code>'a+b+c' =&gt; regex: [a]\+b\+c
+&quot;a+b+c&quot; =&gt; regex: \s*(a\+b\+c)\s*
+</code></pre>
+<p>The regex components should be kept simple, such as a char-set eg: <code>[abc]</code>, or a repeated char-class eg: <code>\d+</code>. There is no loss of expressive power in keeping the regex matches simple since they are components in a larger PEG grammar. PEG logic can be used for lookahead tests eg: <code>&amp;x</code> for positive lookahead tests, or <code>!x</code> for negative lookahead tests, or a semantic action can be used.</p>
+<p>Simple regex components also eliminate troublesome issues with some regular expression implementations, see [Russ Cox] for details.</p>
 <h2><span id="sect-Grammar Grammar"></span>Grammar Grammar</h2>
 <p>The grammar rules can define themselves. Here is a minimal grammar that is sufficient to define itself and parse itself:</p>
 <pre class='demo-eg'>    grammar = (ws rule ws)+
@@ -823,7 +822,7 @@ textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
     par     = [(] ([^()]* par?)* [)]
     group   = "(" expr ")"
 
-    act     = ":" [ \t]* \w+ lines
+    act     = ":" lines
     lines   = line (\s* !\S+\s*= line)*
     line    = [^\n\r]* 
     ws      = \s*  
@@ -840,8 +839,8 @@ textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
 <ul>
 <li>yfx returns a left associative tree.  e.g.  <code>1+2+3 =&gt; (1+2)+3</code></li>
 <li>xfy returns a right associative tree.  e.g. <code>2^3^4 =&gt; 2^(3^4)</code></li>
-<li>xfx returns a flat list excluding the operators. e.g. <code>1+2+3 =&gt; 1 2 3</code></li>
-<li>yfy returns a flat list including the operators. e.g. <code>1+2+3 =&gt; 1+2+3</code></li>
+<li>xfx returns a flat list including the operators. e.g. <code>1+2+3 =&gt; 1 + 2 + 3</code></li>
+<li>yfy returns a flat list including the operators. e.g. <code>1+2+3 =&gt; 1 2 3</code></li>
 <li>string converts the result into a string.</li>
 <li>number converts the result into a number.</li>
 <li>x is any result (without the default rule name label).</li>
@@ -901,7 +900,7 @@ write( expr.parse(`1+2+3*(4+5)-6`) );
 <p>The tree structures:</p>
 <pre><code class="language-box">              +                 ^          
              / \               / \         
-  yfx:      +   4      xfy:   1   ^        xfx:  1 2 3 4    yfy:  1 + 2 + 3 + 4 
+  yfx:      +   4      xfy:   1   ^        xfx:  1 + 2 + 3 + 4    yfy:  1 2 3 4 
            / \                   / \
           +   3                 2   ^    
          / \                       / \
@@ -1019,13 +1018,13 @@ write(e);
 <p>The action functions are called with two arguments:</p>
 <ul>
 <li>The rule result -- this is usually all that is required.</li>
-<li>A parse object: { name, action, pos, input, posit}
+<li>A parse object: <code>{ name, action, pos, input, posit}</code>
 <ul>
 <li>name: the rule name</li>
-<li>action: the action appended to the rule</li>
-<li>pos: the current input position (after the rule match)</li>
-<li>input: the input string being parsed</li>
-<li>posit(i): a function to set a new position.</li>
+<li><code>action</code>: the action appended to the rule</li>
+<li><code>pos</code>: the current input position (after the rule match)</li>
+<li><code>input</code>: the input string being parsed</li>
+<li><code>posit(i)</code>: a function to set a new position.</li>
 </ul>
 </li>
 </ul>

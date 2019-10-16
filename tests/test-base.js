@@ -1,16 +1,41 @@
-const grammar_parser = require("./grammar-parser.js");
+const grammar_parser = require("../grammar-parser.js");
 
 const tests = [
 
 { rules: String.raw`
+    S =  ''
+`, // => ''
+  inputs: [ "" ]
+},
+{ rules: String.raw`
+    S =  ""
+`, // => ''
+  inputs: [ "", "  " ]
+},
+{ rules: String.raw`
+    S =  'a'
+`, // => "a"
+  inputs: [ "a"]
+},
+{ rules: String.raw`
     S =  "a"
-`, // => ["S","a"]
-  inputs: [ "a", "  a"]
+`, // => "a"
+  inputs: [ "a", "  a", "a ", " a "]
+},
+{ rules: String.raw`
+    S = "a" 'b'
+`, // => ['a','b']
+  inputs: [ "ab", " a b"]
 },
 { rules: String.raw`
     S =  "a"+
-`, // => ["S",["a","a","a"]] // a list of strings
-  inputs: ["a", "aaa"]
+`, // => ["a","a","a"] // a list of strings
+  inputs: ["a", "aaa", "  a  a a "]
+},
+{ rules: String.raw`
+S =  [^]
+`, // => 'x'  // match any char
+inputs: [ "a", "x" ]
 },
 { rules: String.raw`
     S =  [a]
@@ -73,6 +98,7 @@ const tests = [
   inputs: [ "ab", "aaabbb"]
 }
 
+
 ]; // tests
 
 // -- test runners -------------------------------------------------------
@@ -103,14 +129,17 @@ function run_test(test, trace) {
 };
 
 function trace(i) {
+    if (i<0) i = tests.length-i;
     run_test(tests[i], 2)
 }
 
 function test(i) {
+    if (i<0) i = tests.length-i;
     run_test(tests[i], 1)
 }
 
 // test(0)  // try an individual test
+
 
 run_tests(tests); // run them all...
 

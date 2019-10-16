@@ -229,7 +229,8 @@ const grit_actions = { // semantic actions for parse tree nodes...
     // quote = '"' [^"]* '"' / "'" [^']* "'"
     "quote": (str) => { // quote => regex: \s*("...")
         qt = str.slice(1,-1);
-        return ["^","\\s*("+esc_regex(qt)+")"];
+        if (str[0] === "'") return ["^",esc_regex(qt)];
+        return ["^","\\s*("+esc_regex(qt)+")\\s*"];
     },
 
     // regex   = &[[\\] (rex / par)*
@@ -297,11 +298,6 @@ function resolve_code(code) {
 
 const std_actions = {
 
-    xfx: (result) => { // a (_ b)* => [a,b,c,...]
-        var [a, bs] = result;
-        return bs.reduce((y, [_, b]) => y.concat(b), [a]);
-    },
-
     xfy: (result) => { // a (op b)* => [op,x,y]
         function xfy(x, ys) {
             if (ys.length === 0) return x;
@@ -317,9 +313,14 @@ const std_actions = {
         return bs.reduce((y, [op, b]) => [op, y, b], a)
     },
 
-    yfy: (result) => { // a (op b)* => [a,op,b,op,c,...]
+    xfx: (result) => { // a (op b)* => [a,op,b,op,c,...]
         var [a, bs] = result;
         return bs.reduce((y, b) => y.concat(b), [a])
+    },
+
+    yfy: (result) => { // a (_ b)* => [a,b,c,...]
+        var [a, bs] = result;
+        return bs.reduce((y, [_, b]) => y.concat(b), [a]);
     },
 
     flatten: (xs) => flatten(xs),
@@ -587,7 +588,7 @@ function parser (code, input, actions={}, options={}) {
                 report("Bad action for '"+name+"':\n"+err);
             }
         }
-        return [name, result] // default result..
+        return result // [name, result] // default result..
     }
 
 
@@ -767,7 +768,7 @@ write(date_match); // ===>
   <script>sandbox.RUN(2)</script><br>
 
 <p>The <code>grammar_parser</code> function corresponds to the <code>RegExp</code> object, it is a function that takes the grammar rules as input and returns a parser function.</p>
-<p>The date grammar rule is quite similar to the date regular expression rule, the big difference is that the grammar rule is given a name (before the <code>=</code> symbol), and the rule use white-space to separate the component parts.</p>
+<p>The date grammar rule is quite similar to the date regular expression rule, the big difference is that the grammar rule is given a name (before the <code>=</code> symbol), and the rule uses white-space to separate the component parts.</p>
 <pre class='demo-eg'>    regular expression:  (\d+)/(\d+)/(\d+)
     grammar rule:        date = \d+ '/' \d+ '/' \d+
 </pre>
@@ -810,8 +811,8 @@ write(date_match)
 </textarea>
   <script>sandbox.RUN(3)</script><br>
 
-<p>This version matches exactly the same syntax, but the grammar rule names now indicate the semantic intent for this grammar. The parser function has been given a short name <code>mdy</code> to stand for the type of text it represents, but it could be given a longer name such as <code>date_parser</code>.</p>
-<p>The grammar rules are a text string, and the <code>grammar_parser</code> function returns a parser function. The result of applying the parser function to an input text string is, by default, a simple JSON data structure with a nested array of string values. The rule names label the results that they matched.</p>
+<p>This version matches exactly the same syntax, but the grammar rule names now indicate the semantic intent for this grammar. The parser function has been given a short name <code>mdy</code> (month-day-year) to stand for the type of text it represents, but it could be given a longer name such as <code>date_parser</code>.</p>
+<p>The grammar rules are a text string, and the <code>grammar_parser</code> function returns a parser function. The result of applying the parser function to an input text string is, by default, a nested array of string values (a simple JSON data structure).</p>
 <p>The date grammar in this example has has been kept as simple as possible to illustrate how things work. In practice a more accurate date grammar could be used, for example it could require that the year has exactly four digits and the month and day have only one or two digits.</p>
 <p>For a slightly larger example we will look at parsing a URI into its component parts. Of course there are library parser functions to decode a URI, and these are the best way to do this particular job. The URI format simply provides a familar example in order to demonstrate the grammar rule approach.</p>
 <p>First using a regular expression:</p>
@@ -964,7 +965,7 @@ write(parsed);
 
 <p>To use regular expressions for this kind of task really needs a program to repeatedly match a regular expression for a single item and build a list of the matched items. A grammar rule can do that efficiently, without the need for any extra program code.</p>
 <p>The result from the RegExp version is an array with the full match followed by the matched item (the bracket capture groups).</p>
-<p>The result from a grammar-parser version is an array of the matched items, but in this case it is a nested tree structure, and the rule name is included as a label for the list of items that it has matched. This tree structure can be called a parse tree or an abstract syntax tree.</p>
+<p>The result from a grammar-parser version is an array of the matched items, but in this case it is a nested tree structure, which can be called a parse tree or an abstract syntax tree.</p>
 <p>The parse tree results may look a little verbose, but the tree structure is quite easy for an application program to navigate. There are no special programming object types involved, the parse tree is a simple JSON data structure that can be implemented in almost any programming language.</p>
 <p>Now for a more realistic example, reading a file of CSV (Comma Separated Variable) data, such as output from a spread-sheet application. The CSV format is simple enough, each line of text is a row in a table, using a comma separator between each column cell.</p>
 
@@ -1146,8 +1147,8 @@ write(e);
 <ul>
 <li><code>yfx</code> -- returns a left associative tree.  e.g.  <code>1+2+3 =&gt; (1+2)+3</code></li>
 <li><code>xfy</code> -- returns a right associative tree.  e.g. <code>2^3^4 =&gt; 2^(3^4)</code></li>
-<li><code>xfx</code> -- returns a flat list excluding the operators. e.g. <code>1+2+3 =&gt; 1 2 3</code></li>
-<li><code>yfy</code> -- returns a flat list including the operators. e.g. <code>1+2+3 =&gt; 1+2+3</code></li>
+<li><code>xfx</code> -- returns a flat list including the operators. e.g. <code>1+2+3 =&gt; 1 + 2 + 3</code></li>
+<li><code>yfy</code> -- returns a flat list excluding the operators. e.g. <code>1+2+3 =&gt; 1 2 3</code></li>
 <li><code>string</code> -- converts the result into a string.</li>
 <li><code>number</code> -- converts the result into a number.</li>
 <li><code>x</code> -- is any result (without the default rule name label).</li>
@@ -1207,7 +1208,7 @@ write( expr.parse(`1+2+3*(4+5)-6`) );
 <p>The tree structures:</p>
 <pre><code class="language-box">              +                 ^          
              / \               / \         
-  yfx:      +   4      xfy:   1   ^        xfx:  1 2 3 4    yfy:  1 + 2 + 3 + 4 
+  yfx:      +   4      xfy:   1   ^        xfx:  1 + 2 + 3 + 4    yfy:  1 2 3 4 
            / \                   / \
           +   3                 2   ^    
          / \                       / \
@@ -1226,7 +1227,7 @@ write( expr.parse(`1+2+3*(4+5)-6`) );
   <textarea id='sandbox-src-12' cols=52 rows=19>const rules = String.raw`
     table = nl* row+            : _x
     row   = &[^] cells nl*      : _x_
-    cells = cell (',' cell)*    : xfx
+    cells = cell (',' cell)*    : yfy
     cell  = [^,\n\r]*           : x
     nl    = \n / \r\n?          : _
 `;
@@ -1247,7 +1248,7 @@ write(arr)
       <textarea id='sandbox-eg-12-0' hidden>const rules = String.raw`
     table = nl* row+            : _x
     row   = &[^] cells nl*      : _x_
-    cells = cell (',' cell)*    : xfx
+    cells = cell (',' cell)*    : yfy
     cell  = [^,\n\r]*           : x
     nl    = \n / \r\n?          : _
 `;

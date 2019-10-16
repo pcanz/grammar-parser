@@ -86,7 +86,7 @@ const grit_rules = String.raw`
     match   = quote / regex
     quote   = '"' [^"]* '"' / "'" [^']* "'"
     regex   = &[[\\] (rex / par)*
-    rex     = [^\s[()]+|[[]([^\]\\]*([\\][^])?)*[\]]
+    rex     = [^\s[()]+|[[]([^\\]\\]*([\\][^])?)*[\]]
     par     = [(] ([^()]* par?)* [)]
     group   = "(" expr ")"
 
@@ -218,9 +218,13 @@ const grit_actions = { // semantic actions for parse tree nodes...
     "match": (x) => x,
 
     // quote = '"' [^"]* '"' / "'" [^']* "'"
-    "quote": (str) => { // quote => regex: \s*("...")
+    "quote": (str) => { // quote => regex: \s*("...")\s*
+        if (str.length === 2) { // empty quotes..
+            return (str[0] === "'")? ["^","\uFFFF?"] : ["^","\\s*(\uFFFF?)"];
+        }
         qt = str.slice(1,-1);
-        return ["^","\\s*("+esc_regex(qt)+")"];
+        if (str[0] === "'") return ["^",esc_regex(qt)];
+        return ["^","\\s*("+esc_regex(qt)+")\\s*"];
     },
 
     // regex   = &[[\\] (rex / par)*
@@ -263,7 +267,7 @@ function resolve_code(code) {
     function resolve (op) {
         if (!Array.isArray(op)) return op;
         if (op[0] === "^") {
-            op[2] = op[2] || new RegExp(op[1],"y"); // sticky flag
+            op[2] = op[2] || new RegExp(op[1],"uy"); // unicode sticky flags
             return op;
         }
         if (op[0] === "=") {
@@ -275,7 +279,7 @@ function resolve_code(code) {
         }
         return op.map((x) => resolve(x));
     }
-    var coded = code.map((rule, idx) => {
+    var coded = code.map((rule) => {
         return resolve(rule.code);
     });
 
@@ -287,11 +291,6 @@ function resolve_code(code) {
 
 
 const std_actions = {
-
-    xfx: (result) => { // a (_ b)* => [a,b,c,...]
-        var [a, bs] = result;
-        return bs.reduce((y, [_, b]) => y.concat(b), [a]);
-    },
 
     xfy: (result) => { // a (op b)* => [op,x,y]
         function xfy(x, ys) {
@@ -308,9 +307,14 @@ const std_actions = {
         return bs.reduce((y, [op, b]) => [op, y, b], a)
     },
 
-    yfy: (result) => { // a (op b)* => [a,op,b,op,c,...]
+    xfx: (result) => { // a (op b)* => [a,op,b,op,c,...]
         var [a, bs] = result;
         return bs.reduce((y, b) => y.concat(b), [a])
+    },
+
+    yfy: (result) => { // a (_ b)* => [a,b,c,...]
+        var [a, bs] = result;
+        return bs.reduce((y, [_, b]) => y.concat(b), [a]);
     },
 
     flatten: (xs) => flatten(xs),
@@ -345,7 +349,7 @@ function parser (code, input, actions={}, options={}) {
     var inRule = "start"; // rule trace 
     var ruleStack = [];
     var maxPos = 0; // high water mark
-    var maxRule= "none"; // inRule at maxPos
+    var maxRule= ""; // inRule at maxPos
     var runOps = 0;
     var maxOps = 10000; // run away recursion check
 
@@ -578,7 +582,7 @@ function parser (code, input, actions={}, options={}) {
                 report("Bad action for '"+name+"':\n"+err);
             }
         }
-        return [name, result] // default result..
+        return result // [name, result] // default result..
     }
 
 
