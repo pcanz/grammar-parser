@@ -1,4 +1,4 @@
-const grammar_parser = require("./grammar-parser.js");
+const grammar_parser = require("../grammar-parser.js");
 
 const tests = [
 
@@ -40,7 +40,7 @@ const tests = [
     },
 
     { rules: String.raw`
-        S =  x ([+-] x)* : yfx
+        S =  x ([+-] x)*
         x = \d+`,
         inputs: [ "123+456-789"],
         actions: {
@@ -57,7 +57,9 @@ const tests = [
         white = \s* ["]?      
         `,
         inputs: [ '"First" and "last".', 'Not other"wise".' ],
+        expects: [ '&ldquo;First&rdquo; and &ldquo;last&rdquo;.', 'Not other&rdquo;wise&rdquo;.' ],
         actions: {
+            text: (x) => { console.log('text=',x); return x;},
             white: ([s, q]) => q? s+"&ldquo;" : s,
             black: ([b, q]) => q? b+"&rdquo;" : b
         }
@@ -134,43 +136,7 @@ a2,b2,c2
 
 ];  // tests
 
-// -- test runners -------------------------------------------------------
+module.exports = tests;
 
-function run_tests(tests, trace) {
-    var done = tests.map((test) => run_test(test, trace))
-    console.log("==> "+done.reduce((n,m) => n+m, 0)+" tests run.");
-};
-
-function run_test(test, trace) {
-    var {rules, inputs, actions} = test;
-
-    const grip = grammar_parser(rules, actions);
-
-    inputs.forEach((input) => {
-        if (!trace) { // silent regression testing
-            grip.parse(input);
-        } else if (trace === 1) { // log the output
-            var parse_tree = grip.parse(input);
-            console.log(JSON.stringify(parse_tree, null, 2));
-        } else { // trace parse & log output...
-            var parse_tree = grip.parse(input,{trace:true});
-            console.log(JSON.stringify(parse_tree, null, 2));
-        }
-    });
-
-    return inputs.length;
-};
-
-function trace(i) {
-    run_test(tests[i], 2)
-}
-
-function test(i) {
-    run_test(tests[i], 1)
-}
-
-test(9)  // try an individual test
-
-// run_tests(tests); // run them all...
 
 

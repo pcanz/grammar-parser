@@ -253,7 +253,7 @@ const grit_actions = { // semantic actions for parse tree nodes...
 } // grit_actions
 
 function esc_regex(str) {
-    return str.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function rules_map(code) {

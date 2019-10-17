@@ -1,4 +1,4 @@
-const grammar_parser = require("./grammar-parser.js");
+const grammar_parser = require("../grammar-parser.js");
 
 const boot0 = String.raw`
     grammar = (ws rule ws)+
