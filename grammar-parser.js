@@ -1,5 +1,7 @@
 // Grammar Parser -- an evolution of Grit.
 
+// See docs at: https://github.com/pcanz/grammar-parser
+
 /*	The MIT License (MIT)
  *
  *	Copyright (c) 2015,2016,2017,2018,2019 Peter Cashin
@@ -23,57 +25,10 @@
  *  DEALINGS IN THE SOFTWARE.
  */
 
-/*
-    See docs at: https://github.com/pcanz/grammar-parser
-    
-    // Example usage:
-
-    const grammar_parser = require("./grammar-parser.js");
-
-    const cvs_rules = String.raw`
-        table  := nl* row+
-        row    := cells nl*
-        cells  := cell ("," cell)*
-        cell   := [^,\n\r]*
-        nl     := [\n] / [\r][\n]?
-    `;
-
-    const csv_actions = {
-        table: (_, rows) => rows,
-        cells: ([c, cs]) => 
-                cs.reduce((xs,[_,x]) => xs.concat(x),[c]),
-        cell:  (s) => s
-    }
-
-    const cvs = grammar_parser(cvs_rules, csv_actions);
-
-    var test = `
-    a1,b1,c1
-    a2,b2,c3
-    a3,b3,c3
-    `;
-
-    var parse_tree = cvs.parse(test);
-
-    console.log(JSON.stringify(parse_tree, null, 2));
-
-    // parse(input, options)
-
-    // options: { // default values...
-    //      trace: false,  // true to trace parse
-    //      replay: false, // to trace after parse failure
-    //      silent: false, // to not throw any faults or print reports
-    //      console: false // to use console.log (don't throw Errors)
-    //      report: null   // report faults when silent = true
-    //  }
-
-*/
-
 ;(function() { // module name-space wrapper -- see the end of this file...
 
-// -- grammar rule grammar ---------------------------------------
+/* -- grammar-rule grammar ---------------------------------------
 
-const grit_rules = String.raw`
     grammar = rule+
     rule    = name "=" expr ws act?
 
@@ -94,12 +49,12 @@ const grit_rules = String.raw`
     lines   = line (\s* !\S+\s*= line)*
     line    = [^\n\r]* 
     ws      = \s*  
-`;
+*/
 
 // -- parser code for grit_rules --------------------------------------
 
-// The parser is a byte-code style interpreter, but uses a
-// higher level array data structure with string values.
+// The parser is a byte-code style interpreter, but encodes
+// instructions an array data structure with string values.
 
 /* parser instruction codes:
 
@@ -170,7 +125,7 @@ const grit_code = [
         code: ["^","\\s*"] }
 ];
 
-resolve_code(grit_code);
+resolve_code(grit_code); // maps names to indexes & compiles regexes
 
 // -- compile peg rules into parser instruction codes --------------------
 
@@ -346,7 +301,7 @@ function number(xs) {
 
 function parser (code, input, actions={}, options={}) {
     var pos = 0;
-    var inRule = "start"; // rule trace 
+    var inRule = "start"; // current rule trace 
     var ruleStack = [];
     var maxPos = 0; // high water mark
     var maxRule= ""; // inRule at maxPos
@@ -467,7 +422,7 @@ function parser (code, input, actions={}, options={}) {
             }
             return res;
 
-        case '*':
+        case '*': // ["*", op]
             var start = pos;
             var temp = run(op[1]);
             if (temp === null) return [];
@@ -480,7 +435,7 @@ function parser (code, input, actions={}, options={}) {
             }
             return res;
 
-        case '+':
+        case '+': // ["+", op]
             var start = pos;
             var temp = run(op[1]);
             if (temp === null) return null;
@@ -493,19 +448,19 @@ function parser (code, input, actions={}, options={}) {
             }
             return res;
 
-        case '?':
+        case '?': // ["?", op]
             var res = run(op[1])
             if (res === null) return "";
             return res;
 
-        case '!':
+        case '!': // ["!", op]
             var start = pos
             var res = run(op[1])
             pos = start
             if (res === null) return "";
             return null;
 
-        case '&':
+        case '&': // ["&", op]
             var start = pos
             var res = run(op[1])
             pos = start
