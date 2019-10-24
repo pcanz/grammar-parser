@@ -34,16 +34,17 @@
 
     expr    = seq ("/" seq)*
     seq     = (ws [&!]? term [*+?]?)*
-    term    = ref / match / group
+    term    = ref / quote / regex / group
 
     name    = ws \w+
     ref     = name !\s*=
-    match   = quote / regex
-    quote   = '"' [^"]* '"' / "'" [^']* "'"
-    regex   = &[[\\] (rex / par)*
-    rex     = [^\s[()]+|[[]([^\\]\\]*([\\][^])?)*[\]]
-    par     = [(] ([^()]* par?)* [)]
     group   = "(" expr ")"
+
+    quote   = '"' [^"]* '"' / "'" [^']* "'"
+    regex   = &[[\\] (chs / par / misc)+
+    chs     = [\[] ([^\]\\]* ([\\][^])?)+ [\]]
+    par     = [(] ([^()]* par?)* [)]
+    misc    = [^[()\s]+
 
     act     = ":" lines
     lines   = line (\s* !\S+\s*= line)*
@@ -89,8 +90,8 @@ const grit_code = [
         name: "seq",
         code: ["*",[",",["=","ws"],["^","[&!]?"],["=","term"],["^","[*+?]?"]]] },
 
-    {   name: "term", // term = ref / match / group
-        code: ["/",["=","ref"],["=","match"],["=","group"]] },
+    {   name: "term", // term = ref / quote/ regex / group
+        code: ["/",["=","ref"],["=","quote"],["=","regex"],["=","group"]] },
 
     {   name: "name", // name = ws \w+
         code: [",",["^","[\\s]*"],["^","[\\w]+"]] },
@@ -98,20 +99,20 @@ const grit_code = [
     {   name: "ref", // ref = name !\s*=
         code: [",",["=","name"],["!",["^","[\\s]*="]]] },
 
-    {   name: "match", // match = quote / regex
-        code: ["/",["=","quote"],["=","regex"]] },
-
     {   name: "quote", // quote = '"' [^"]* '"' / "'" [^']* "'"
         code: ["^","\\s*((?:'[^']*'|\"[^\"]*\")[\\w]*)"] },
 
-    {   name: "regex", // regex = &[[\\] (rex / par)*
-        code: [",",["&",["^","[[\\\\]"]],["*",["/",["=","rex"],["=","par"]]]] },
+    {   name: "regex", // regex = &[[\\] (chs / par / misc)+
+        code: [",",["&",["^","[[\\\\]"]],["+",["/",["=","chs"],["=","par"],["=","misc"]]]] },
 
-    {   name: "rex", // rex = [\s[()]+|[[]([^\]\\]*([\\][^])?)*[\]]
-        code: ["^","[^\\s[()]+|[[](?:[^\\]\\\\]*(?:[\\\\][^])?)*[\\]]"] },
+    {   name: "chs", // [\[] ([^\]\\]* ([\\][^])?)+ [\]]
+        code: ["^","[[](?:[^\\]\\\\]*(?:[\\\\][^])?)+[\\]]"] },
 
     {   name: "par", // par = [(] ([^()]* par?)* [)]
         code: [",",["^","[(]"],["*",[",",["^","[^()]*"],["?",["=","par"]]]],["^","[)]"]] },
+
+    {   name: "misc", // [^[()\s]+
+        code: ["^","[^[()\\s]+"] },
 
     {   name: "group", // group = "(" expr ")"
         code: [",",["^","\\s*\\("],["=","expr"],["^","\\s*\\)"]] },
@@ -169,8 +170,8 @@ const grit_actions = { // semantic actions for parse tree nodes...
     // ref = name !\s*=
     "ref":  ([name, _]) => ["=", name, null],
 
-    // match = quote / regex
-    "match": (x) => x,
+    // group = "(" expr ")"
+    "group": ([_, expr]) => expr,
 
     // quote = '"' [^"]* '"' / "'" [^']* "'"
     "quote": (str) => { // quote => regex: \s*("...")\s*
@@ -182,20 +183,14 @@ const grit_actions = { // semantic actions for parse tree nodes...
         return ["^","\\s*("+esc_regex(qt)+")\\s*"];
     },
 
-    // regex   = &[[\\] (rex / par)*
+    // regex   = &[[\\] (chs / par / misc)*
     "regex": ([_, rs]) => ["^", rs.join('')],
-
-    // rex = [^\s[()]+|[[]([^\]\\]*([\\][^])?)*[\]]
-    "rex": (x) => x,
 
     // par = [(] ([^()]* par?)* [)]
     "par": ([lp, ps, rp]) => { // par? => p, will be already done..
         var xps = ps.map(([x, p]) => p? x+p : x);
         return lp + xps.join('') + rp; 
     },
-
-    // group = "(" expr ")"
-    "group": ([_, expr]) => expr,
 
     // act = ":" lines
     "act": ([_, line, lines]) => {
@@ -517,7 +512,7 @@ function parser (code, input, actions={}, options={}) {
             var ax = action.match(/^\s*(\S+)/);
             act = ax? ax[1] : "";
             fn = actions[act] || std_actions[act];
-            if (!fn) { // synthetic std act...
+            if (!fn) { // synthetic action: _x_ etc..
                 if (act.match(/^[_x]+$/) && Array.isArray(result)) {
                     var res = [];
                     result.forEach((x, i) => {

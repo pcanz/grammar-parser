@@ -1,4 +1,4 @@
-#   Readme
+#   Grit Grammar Parser
 
 A grammmar-parser enables grammar rules to be directly executed in program code. It is a practical tool for programmers that is as easy to use as regular expressions.
 

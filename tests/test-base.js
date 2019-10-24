@@ -91,6 +91,16 @@ const tests = [
         expects: [ [['a','b']], [['a','b']], [['a','b'],['a','b'], ['a','b']] ]
     },
     { rules: String.raw`
+        S =  !'x' [^] 'y' / "xxxx"
+    `, inputs: ["yy", "zy", "xxxx"],
+       expects: [ ["","y","y"], ["","z","y"], "xxxx"]
+    },
+    { rules: String.raw`
+        S =  ![x]{3} [^] 'y' / "xxx" [^]
+    `, inputs: ["yy", "zy", "xxxz"],
+       expects: [ ["","y","y"], ["","z","y"], ["xxx", "z"] ]
+    },
+    { rules: String.raw`
         S = 'a' S? 'b' `,
       inputs: [ "ab", "aaabbb"],
       expects: [ ['a','','b'], ['a', ['a', ['a','','b'],'b'],'b'] ]
