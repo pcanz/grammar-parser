@@ -32,16 +32,15 @@ const date_regex = new RegExp(
 var date_match = date_regex.exec("3/4/2019");
 
 write(date_match); // ===>
-
 ---
 const date_rule = String.raw`(\d+)/(\d+)/(\d+)`;
 
 const date_regex = new RegExp(date_rule);
 
+
 var date_match = date_regex.exec("3/4/2019");
 
 write(date_match); // ===>
-
 ---
 const date_regex = /(\d+)\/(\d+)\/(\d+)/;
 
@@ -82,7 +81,16 @@ const date_peg = grit`
 var date_match = date_peg.parse("3/4/2019");
 
 write(date_match); // ===>
+---
+const date_peg = grit`
+    date = \d+ '/' \d+ '/' \d+
+`;
+// .match() is the same as .parse() except
+// failure returns null, without exception.
 
+var date_match = date_peg.match("3/4/2019");
+
+write(date_match); // ===>
 ```
 The `grit` function corresponds to the `RegExp` object, it is a function that takes the grammar rules as input and returns a parser function. The source code for the `grit` grammar parser can be found at: <https://github.com/pcanz/grammar-parser>
 

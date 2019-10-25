@@ -553,7 +553,17 @@ function grammar_parser (grammar, actions) {
         return parser(code, input, this.actions, options);
     };
 
-    return {parse, grammar, actions, code};
+    function match(input, options) {
+        try {
+            var result = this.parse(input, options);
+        } catch(err) {
+            this.err = err;
+            return null;
+        }
+        return result;
+    }
+
+    return {parse, match, grammar, actions, code};
 }
 
 // module.exports = grammar_parser;

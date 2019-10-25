@@ -562,7 +562,17 @@ function grammar_parser (grammar, actions) {
         return parser(code, input, this.actions, options);
     };
 
-    return {parse, grammar, actions, code};
+    function match(input, options) {
+        try {
+            var result = this.parse(input, options);
+        } catch(err) {
+            this.err = err;
+            return null;
+        }
+        return result;
+    }
+
+    return {parse, match, grammar, actions, code};
 }
 
 // module.exports = grammar_parser;
@@ -665,14 +675,14 @@ td.demo-2 { padding: 0pt 10pt; }
     <button onClick='sandbox.RUN(1)'
             style="vertical-align:top">RUN</button>
   </div>
-  <textarea id='sandbox-src-1' style="width:49%" rows=7>const date_regex = new RegExp(
+  <textarea id='sandbox-src-1' style="width:49%" rows=8>const date_regex = new RegExp(
   `(\\d+)/(\\d+)/(\\d+)`
 );
 
 var date_match = date_regex.exec("3/4/2019");
 
 write(date_match); // ===></textarea>
-  <textarea id='sandbox-dst-1' style="width:49%" rows=7></textarea>
+  <textarea id='sandbox-dst-1' style="width:49%" rows=8></textarea>
   
       <textarea id='sandbox-eg-1-0' hidden>const date_regex = new RegExp(
   `(\\d+)/(\\d+)/(\\d+)`
@@ -684,6 +694,7 @@ write(date_match); // ===></textarea>
       <textarea id='sandbox-eg-1-1' hidden>const date_rule = String.raw`(\d+)/(\d+)/(\d+)`;
 
 const date_regex = new RegExp(date_rule);
+
 
 var date_match = date_regex.exec("3/4/2019");
 
@@ -709,18 +720,19 @@ write(date_match); // ===>
       <option value='1'>Example 2.1</option>
       <option value='2'>Example 2.2</option>
       <option value='3'>Example 2.3</option>
+      <option value='4'>Example 2.4</option>
       </select>
     <button onClick='sandbox.RUN(2)'
             style="vertical-align:top">RUN</button>
   </div>
-  <textarea id='sandbox-src-2' style="width:49%" rows=9>const date_peg = grit(`
+  <textarea id='sandbox-src-2' style="width:49%" rows=10>const date_peg = grit(`
     date = \\d+ '/' \\d+ '/' \\d+
 `);
 
 var date_match = date_peg.parse("3/4/2019");
 
 write(date_match); // ===></textarea>
-  <textarea id='sandbox-dst-2' style="width:49%" rows=9></textarea>
+  <textarea id='sandbox-dst-2' style="width:49%" rows=10></textarea>
   
       <textarea id='sandbox-eg-2-0' hidden>const date_peg = grit(`
     date = \\d+ '/' \\d+ '/' \\d+
@@ -744,8 +756,16 @@ write(date_match); // ===></textarea>
 
 var date_match = date_peg.parse("3/4/2019");
 
-write(date_match); // ===>
+write(date_match); // ===></textarea>
+      <textarea id='sandbox-eg-2-3' hidden>const date_peg = grit`
+    date = \d+ '/' \d+ '/' \d+
+`;
+// .match() is the same as .parse() except
+// failure returns null, without exception.
 
+var date_match = date_peg.match("3/4/2019");
+
+write(date_match); // ===>
 </textarea>
   <script>sandbox.RUN(2)</script><br>
 
