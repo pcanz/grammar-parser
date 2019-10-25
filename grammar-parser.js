@@ -538,6 +538,7 @@ function parser (code, input, actions={}, options={}) {
 
 } // parser
 
+
 // -- grammar_parser --------------------------------------------------------
 
 function grammar_parser (grammar, actions) {
@@ -546,15 +547,13 @@ function grammar_parser (grammar, actions) {
 
     if (!code) return null;
     
-    resolve_code(code)
+    resolve_code(code);
 
     function parse(input, options) {
-        return parser(code, input, actions, options);
-    }
+        return parser(code, input, this.actions, options);
+    };
 
-    return Object.freeze({
-        parse, grammar, actions, code
-    })
+    return {parse, grammar, actions, code};
 }
 
 // module.exports = grammar_parser;

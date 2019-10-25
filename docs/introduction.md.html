@@ -192,6 +192,9 @@ const grit_actions = { // semantic actions for parse tree nodes...
         return ["^","\\s*("+esc_regex(qt)+")\\s*"];
     },
 
+    // regex   = &[[\\] (chs / par / misc)*
+    "regex": ([_, rs]) => ["^", rs.join('')],
+
     // par = [(] ([^()]* par?)* [)]
     "par": ([lp, ps, rp]) => { // par? => p, will be already done..
         var xps = ps.map(([x, p]) => p? x+p : x);
@@ -518,7 +521,7 @@ function parser (code, input, actions={}, options={}) {
             var ax = action.match(/^\s*(\S+)/);
             act = ax? ax[1] : "";
             fn = actions[act] || std_actions[act];
-            if (!fn) { // synthetic std act...
+            if (!fn) { // synthetic action: _x_ etc..
                 if (act.match(/^[_x]+$/) && Array.isArray(result)) {
                     var res = [];
                     result.forEach((x, i) => {
@@ -544,6 +547,7 @@ function parser (code, input, actions={}, options={}) {
 
 } // parser
 
+
 // -- grammar_parser --------------------------------------------------------
 
 function grammar_parser (grammar, actions) {
@@ -552,15 +556,13 @@ function grammar_parser (grammar, actions) {
 
     if (!code) return null;
     
-    resolve_code(code)
+    resolve_code(code);
 
     function parse(input, options) {
-        return parser(code, input, actions, options);
-    }
+        return parser(code, input, this.actions, options);
+    };
 
-    return Object.freeze({
-        parse, grammar, actions, code
-    })
+    return {parse, grammar, actions, code};
 }
 
 // module.exports = grammar_parser;
@@ -1180,33 +1182,43 @@ write(arr)
 
   <div class="sandbox controls">
     
-      <button onClick='sandbox.RESET(11)' >Example 11</button>
+      <select id="sandbox-select-11" onchange="sandbox.SELECT(11)">
+      
+      <option value='1'>Example 11.1</option>
+      <option value='2'>Example 11.2</option>
+      </select>
     <button onClick='sandbox.RUN(11)'
             style="vertical-align:top">RUN</button>
   </div>
-  <textarea id='sandbox-src-11' style="width:49%" rows=12>const arith = String.raw`
+  <textarea id='sandbox-src-11' style="width:49%" rows=12>const arith = grit`
   expr   = factor ([+-] factor)*
   factor = term ([*/] term)*
   term   = \d+ / "(" expr ")"
 `;
 
-const expr = grit(arith);
+var e = arith.parse("1+2*3");
 
-var e = expr.parse("1+2*3");
-
-write(e);
-</textarea>
+write(e);</textarea>
   <textarea id='sandbox-dst-11' style="width:49%" rows=12></textarea>
   
-      <textarea id='sandbox-eg-11-0' hidden>const arith = String.raw`
+      <textarea id='sandbox-eg-11-0' hidden>const arith = grit`
   expr   = factor ([+-] factor)*
   factor = term ([*/] term)*
   term   = \d+ / "(" expr ")"
 `;
 
-const expr = grit(arith);
+var e = arith.parse("1+2*3");
 
-var e = expr.parse("1+2*3");
+write(e);</textarea>
+      <textarea id='sandbox-eg-11-1' hidden>const expr = String.raw`
+  expr   = factor ([+-] factor)*
+  factor = term ([*/] term)*
+  term   = \d+ / "(" expr ")"
+`;
+
+const arith = grit(expr);
+
+var e = arith.parse("1+2*3");
 
 write(e);
 </textarea>
@@ -1230,17 +1242,21 @@ write(e);
 
   <div class="sandbox controls">
     
-      <button onClick='sandbox.RESET(12)' >Example 12</button>
+      <select id="sandbox-select-12" onchange="sandbox.SELECT(12)">
+      
+      <option value='1'>Example 12.1</option>
+      <option value='2'>Example 12.2</option>
+      </select>
     <button onClick='sandbox.RUN(12)'
             style="vertical-align:top">RUN</button>
   </div>
-  <textarea id='sandbox-src-12' style="width:49%" rows=22>const arith = String.raw`
+  <textarea id='sandbox-src-12' style="width:49%" rows=22>const arith = grit`
   expr   = factor ([+-] factor)*
   factor = term ([*/] term)*
   term   = \d+ / "(" expr ")"
 `;
 
-const evaluate = {
+arith.actions = {
   expr:   ([f, fs]) =>
             fs.reduce((y, [op, x]) =>
               op === "+"? y+x : y-x, f),   
@@ -1250,15 +1266,31 @@ const evaluate = {
   term:   (x) => Number(x) || x[1]
 }
 
-const expr = grit(arith, evaluate);
+var e = arith.parse("1+2*(3+4)-5");
 
-var e = expr.parse("1+2*(3+4)-5");
-
-write(e);
-</textarea>
+write(e);</textarea>
   <textarea id='sandbox-dst-12' style="width:49%" rows=22></textarea>
   
-      <textarea id='sandbox-eg-12-0' hidden>const arith = String.raw`
+      <textarea id='sandbox-eg-12-0' hidden>const arith = grit`
+  expr   = factor ([+-] factor)*
+  factor = term ([*/] term)*
+  term   = \d+ / "(" expr ")"
+`;
+
+arith.actions = {
+  expr:   ([f, fs]) =>
+            fs.reduce((y, [op, x]) =>
+              op === "+"? y+x : y-x, f),   
+  factor: ([t, ts]) =>
+            ts.reduce((y, [op, x]) =>
+              op === "*"? y*x : y/x, t),
+  term:   (x) => Number(x) || x[1]
+}
+
+var e = arith.parse("1+2*(3+4)-5");
+
+write(e);</textarea>
+      <textarea id='sandbox-eg-12-1' hidden>const expr = String.raw`
   expr   = factor ([+-] factor)*
   factor = term ([*/] term)*
   term   = \d+ / "(" expr ")"
@@ -1274,9 +1306,9 @@ const evaluate = {
   term:   (x) => Number(x) || x[1]
 }
 
-const expr = grit(arith, evaluate);
+const arith = grit(expr, evaluate);
 
-var e = expr.parse("1+2*(3+4)-5");
+var e = arith.parse("1+2*(3+4)-5");
 
 write(e);
 </textarea>

@@ -375,15 +375,25 @@ A grammar-parser makes grammar rules a practical tool that can be used to simpli
 To illustrate that, here is a grammar for arithmetic expressions:
 
 ``` sandbox
-const arith = String.raw`
+const arith = grit`
   expr   = factor ([+-] factor)*
   factor = term ([*/] term)*
   term   = \d+ / "(" expr ")"
 `;
 
-const expr = grit(arith);
+var e = arith.parse("1+2*3");
 
-var e = expr.parse("1+2*3");
+write(e);
+---
+const expr = String.raw`
+  expr   = factor ([+-] factor)*
+  factor = term ([*/] term)*
+  term   = \d+ / "(" expr ")"
+`;
+
+const arith = grit(expr);
+
+var e = arith.parse("1+2*3");
 
 write(e);
 ````
@@ -415,7 +425,27 @@ A grammar rule may be given an associated semantic action which is a function th
 To demonstrate, we can add semantic actions to our arithmetic expression grammar to make it into a calculator that can evaluate numeric results. The semantic actions are written as a set of named functions in an `evaluate` object, which is passed into the `grit` function along with the grammar rules:
 
 ``` sandbox
-const arith = String.raw`
+const arith = grit`
+  expr   = factor ([+-] factor)*
+  factor = term ([*/] term)*
+  term   = \d+ / "(" expr ")"
+`;
+
+arith.actions = {
+  expr:   ([f, fs]) =>
+            fs.reduce((y, [op, x]) =>
+              op === "+"? y+x : y-x, f),   
+  factor: ([t, ts]) =>
+            ts.reduce((y, [op, x]) =>
+              op === "*"? y*x : y/x, t),
+  term:   (x) => Number(x) || x[1]
+}
+
+var e = arith.parse("1+2*(3+4)-5");
+
+write(e);
+---
+const expr = String.raw`
   expr   = factor ([+-] factor)*
   factor = term ([*/] term)*
   term   = \d+ / "(" expr ")"
@@ -431,9 +461,9 @@ const evaluate = {
   term:   (x) => Number(x) || x[1]
 }
 
-const expr = grit(arith, evaluate);
+const arith = grit(expr, evaluate);
 
-var e = expr.parse("1+2*(3+4)-5");
+var e = arith.parse("1+2*(3+4)-5");
 
 write(e);
 ````
