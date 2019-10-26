@@ -306,7 +306,7 @@ const CSV_grammar = String.raw`
   escaped = esc+
   esc     = ["] [^"]* ["]
   txt     = [^,"\n\r]*
-  nl      = \n / \r\n?
+  nl      = \n|\r\n?
 `;
 
 const CSV = grit(CSV_grammar);
@@ -355,7 +355,7 @@ The repeat operators: *, +, ? are also simpler than the regex operators since th
 
 A simple regex component with a repeat suffix can not be logically distinguished from a PEG repeat operator (since there is no backtracking to let the regex try again). It is best to keep regex components simple, but a more complex regex component can be used, and they may employ regex logic internally. A regex component returns a string match result.
 
-The lack of backtracking in the PEG logic can make it quite different from a regex. For example, here is a sequence of two regex components in a grammar rule that will fail to match an input that the same two components could match, if they were combined into a single regex:
+The lack of backtracking in the PEG logic can sometimes make it quite different from a regex. For example, here are two regex components that will fail on an input that the same two components will match if they are combined into a single regex:
 
 ``` eg
     [ab]+ [bc]+  -- fails on: "abb" (the [bc]+ finds nothing left to match).

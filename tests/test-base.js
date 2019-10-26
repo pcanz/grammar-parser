@@ -56,6 +56,11 @@ const tests = [
        expects: ["123", "123"]
     },
     { rules: String.raw`
+        S =  ^\s*(\d+)
+    `, inputs: ["123", "  123"],
+       expects: ["123", "123"]
+    },
+    { rules: String.raw`
         S =  \s*(\d+(\w+\s*)+)
     `, inputs: ["123abc", "  123abc ", "1a b c"],
        expects: ["123abc", "123abc ", "1a b c"]
