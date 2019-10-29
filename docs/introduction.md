@@ -1,4 +1,4 @@
-#	 Grammar Parsers
+#	 Introduction To Grammar Parsers
 
 Regular expressions are a standard tool in every programmers tool-box. But grammar rules are rarley used, they seem to be reserved for specialists such as language designers and compiler writers.
 
@@ -15,8 +15,9 @@ Using PEG rules eliminates the need for a pre-parse [lexer] which traditional gr
 [PEG]: https://en.wikipedia.org/wiki/Parsing_expression_grammar
 [lexer]: https://en.wikipedia.org/wiki/Lexical_analysis
 
-The grammar rules can be used in almost any programming language. We will use JavaScript here in order to show running examples, and to compare grammar rules with regular expressions. To do that we will need to introduce a few programming language details, but the grammar rules themselves are independent of the host programming language.
+The grammar rules can be used in almost any programming language. We will use the  JavaScript [`grit-parser`] in order to show running examples, and to compare grammar rules with regular expressions. To do that we will need to introduce a few programming language details, but the grammar rules themselves are independent of the host programming language.
 
+[`grit-parser`]: https://github.com/pcanz/grammar-parser/
 
 ##  A First Example
 
@@ -92,7 +93,7 @@ var date_match = date_peg.match("3/4/2019");
 
 write(date_match); // ===>
 ```
-The `grit` function corresponds to the `RegExp` object, it is a function that takes the grammar rules as input and returns a parser function. The source code for the `grit` grammar parser can be found at: <https://github.com/pcanz/grammar-parser>
+The `grit` function corresponds to the `RegExp` object, it is a function that takes the grammar rules as input and returns a parser function. The source code for the `grit` grammar parser can be found at: <https://github.com/pcanz/grammar-parser/>
 
 The date grammar rule is quite similar to the date regular expression rule, the big difference is that the grammar rule has a name (before the `=` symbol), and the rule uses white-space to separate the component parts (extra white-space is insignificant).
 ``` eg

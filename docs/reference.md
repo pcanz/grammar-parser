@@ -1,42 +1,15 @@
-#   Grammar Parser Reference Guide
+#   Grit Grammar Parser Reference
 
-The JavaScript implementation of the `grammar_parser` function is a single file with no dependencies. It uses the standard RegExp constructor to build its regex components.
+This reference guide is for the the NPM `grit-parser` package.
 
-The source code can be found at: <https://github.com/pcanz/grammar-parser>
-
-Example usage, with a local copy of the `grammar-parser.js` file:
-
-``` eg
-    const grammar_parser = require("./grammar-parser.js");
-
-    const cvs_rules = String.raw`
-        table  = row+
-        row    = cell ("," cell)* nl?
-        cell   = [^,\n\r]*
-        nl     = [\n] / [\r][\n]?
-    `;
-
-    const cvs = grammar_parser(cvs_rules);
-
-    var test = `
-    a1,b1,c1
-    a2,b2,c3
-    a3,b3,c3
-    `;
-
-    var parse_tree = cvs.parse(test);
-
-    console.log(JSON.stringify(parse_tree, null, 2));
-```
-
-
+Project repository: <https://github.com/pcanz/grammar-parser>
 
 
 ##  PEG Rules
 
-A grammar rule names a PEG expression which may contain string matching components. 
+A grammar rule names a PEG expression that contains string pattern matching components. 
 
-An expression `e` may be either:
+A PEG expression `e` may be either:
 
 *   a rule name reference -- to match the expression defined by that rule.
 *   a string match component -- to directly match the input text.
@@ -55,14 +28,14 @@ An empty match is not a failure, so: `e1* / e2` should never try to match e2. Bu
 
 Any PEG expression e can be given a predicate prefix:
 
-*   `&e` returns `[]` if e matches, else it fails. No input is consumed.
-*   `!e` returns `[]` if e does NOT match, else it fails. No input is consumed.
+*   `&e` matches an empty string `''` if e matches, else it fails. No input is consumed.
+*   `!e` matches an empty string `''` if e does NOT match, else it fails. No input is consumed.
 
 Any PEG expression e can be given a repeat suffix:
 
 *   `e*` results in an array with zero or more matches.
 *   `e+` results in an array with one or more matches.
-*   `e?` will either match `e` or an empty array `[]`.
+*   `e?` will either match `e` or an empty string `''`.
 
 The result of a repeat is always the longest match and no other.
 
@@ -89,12 +62,11 @@ A string matching component in a grammar rule can be either:
     - double-quote marks (but not single-quote mrks) will skip surrounding white-space.
 
 *   A regex to match a regular expression.
-    - a regex must start with `[ or \`
-    - for example: `[abc] or \d`
-    - suffix repeats can be included in the regex, eg: `[abc]* or \d+`
-    - a regex will not skip leading white-space
-    - after the start the regex is not restricted, it can be almost anything
-    - for example: `[abc]*(\s*\d+)*`
+    - a regex must start with `[` or `\` or `^`
+    - for example: `[abc]` or `\d` or `^(abc)`
+    - suffix repeats can be included in the regex, eg: `[abc]*` or `\d+`
+    - after the start the regex is not restricted (it can be any valid RegExp)
+    - for example: `[abc]*(\s*\d{3,4})*`
     - the complete regex is evaluated as a single regular expression
     - a regex can not contain any white-space, except in brackets, eg: `[ \t]*`
     - the result is the full matched string, or the first capture group if there is one.
@@ -104,93 +76,172 @@ Note that quoted literal `"x"` and the regex `[x]` will both match a literal cha
     'a+b+c' => regex: [a]\+b\+c
     "a+b+c" => regex: \s*(a\+b\+c)\s*
 
-The regex components should be kept simple, such as a char-set eg: `[abc]`, or a repeated char-class eg: `\d+`. There is no loss of expressive power in keeping the regex matches simple since they are components in a larger PEG grammar. PEG logic can be used for lookahead tests eg: `&x` for positive lookahead tests, or `!x` for negative lookahead tests, or a semantic action can be used.
+A `^` in a regex will only match at the beginning, but since each regex component is treated as a separate match it is not necesary to use a `^` at the start of a regex component (but it does no harm). Since any regex *may* begin with a `^` is can be used to introduce any regex component, for example, `^(x)+` is a regex to match one or more x characters, but `(x)+` is not a regex, it will match a list of one or more `x` rules.
+
+Ideally the regex components should be kept simple, such as a char-set eg: `[abc]`, or a repeated char-class eg: `\d+`. There is no loss of expressive power in keeping the regex matches simple since they are components in a larger PEG grammar. The PEG logic can include lookahead tests eg: `&x` for positive lookahead tests, or `!x` for negative lookahead tests, or a semantic action can be used.
 
 Simple regex components also eliminate troublesome issues with some regular expression implementations, see [Russ Cox] for details.
 
-
-##  Grammar Grammar
-
-The grammar rules can define themselves. Here is a minimal grammar that is sufficient to define itself and parse itself:
-
-``` eg
-    grammar = (ws rule ws)+
-    rule    = name ws [=] expr
-
-    expr    = seq (ws [/] seq)*
-    seq     = ([ ]* term [*+?]?)*
-    term    = name / match / group
-
-    name    = [\w]+
-    match   = [[] [^\x5D]+ [\x5D] [*+?]?
-    group   = [(] expr [)]
-
-    ws      = [\s]*
-```
-This grammar only accepts simple regex char-set string match components. 
-
-Here is the full `grammar_parser` definiton:
-
-``` eg
-    grammar = rule+
-    rule    = name "=" expr ws act?
-
-    expr    = seq ("/" seq)*
-    seq     = (ws [&!]? term [*+?]?)*
-    term    = ref / match / group
-
-    name    = ws \w+
-    ref     = name !\s*=
-    match   = quote / regex
-    quote   = '"' [^"]* '"' / "'" [^']* "'"
-    regex   = &[[\\] (rex / par)*
-    rex     = [^\s[()]+|[[]([^\]\\]*([\\][^])?)*[\]]
-    par     = [(] ([^()]* par?)* [)]
-    group   = "(" expr ")"
-
-    act     = ":" lines
-    lines   = line (\s* !\S+\s*= line)*
-    line    = [^\n\r]* 
-    ws      = \s*  
-```
+[Russ Cox]: https://swtch.com/~rsc/regexp/regexp1.html
 
 ##  Semantic Actions
 
-A semantic action function name may be appended to to a rule with a `:` separator.
+Semantic actions are functions that are appled to the result of a rule match. The actions are defined as properties of an object, which can be assigned to the `actions` property of a parser:
 
-Custom semantic action functions can be defined in the host programming languiage and passed into the the grammar_parser function along with the grammar rules.
+``` sandbox
+const mdy = grit`
+    date  = month '/' day '/' year
+    day   = \d+
+    month = \d{1,2}
+    year  = \d{4}
+`;
 
-If the rule has an attached semantic action function name that matches a custom function then that function will be given the rule match results. The result from the rule will then be the result of the semantic action function. 
+mdy.actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    day: (d) => Number(d),
+    month: (m) => Number(m),
+    year: (y) => Number(y)
+}
 
-If the semantic action returns `null` then the rule will fail, any other result can be used as the rule result.
+var dt = mdy.parse("3/4/2019");
+
+write(dt);
+---
+const grammar = String.raw`
+    date  = month '/' day '/' year
+    day   = \d+
+    month = \d{1,2}
+    year  = \d{4}
+`;
+
+const actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    day: (d) => Number(d),
+    month: (m) => Number(m),
+    year: (y) => Number(y)
+}
+
+const mdy = grit(grammar, actions);
+
+var dt = mdy.parse("3/4/2019");
+
+write(dt);
+```
+The function name corresponding to the rule name will be called with the result matched by that rule.
+
+The grit grammar parser constructor function may also be called with two arguments: the grammar rules, and the action functions, as in example 1.2.
+
+The name of a semantic action function may be appended to a rule with a `:` separator:
+
+``` sandbox
+const mdy = grit`
+    date  = month '/' day '/' year : date
+    day   = \d+                    : num
+    month = \d{1,2}                : num
+    year  = \d{4}                  : num
+`;
+
+mdy.actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    num: (n) => Number(n)
+}
+
+var dt = mdy.parse("3/4/2019");
+
+write(dt);
+---
+const grammar = String.raw`
+    date  = month '/' day '/' year : date
+    day   = \d+                    : num
+    month = \d{1,2}                : num
+    year  = \d{4}                  : num
+`;
+
+const actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    num: (d) => Number(d)
+}
+
+const mdy = grit(grammar, actions);
+
+var dt = mdy.parse("3/4/2019");
+
+write(dt);
+```
+
+If the semantic action returns `null` then the rule will fail, otherwise the action may return any result as the rule result.
 
 If the rule has a semantic action function name that does not match a custom function then it may match a standard built-in function name.
 
-If a rule has no attached semantic action, but there is a custom fuction with the same name as the rule, then this custom function will be applied to the results of this rule.
+An application program can always process the default parse tree without using any semantic actions(in that case the parse tree result will be an array of arrays of string values). But it is often more convenient to break the parse tree processing into smaller functions applied to the result of an individual rule.
+
+For example, a calculator application could process the parse tree for arithmetic expressions, but it is simpler to break the calculator application into semantic action functions that incrementally process the results of individual grammar rules:
+
+``` sandbox
+const arith = grit`
+  expr   = factor ([+-] factor)*
+  factor = term ([*/] term)*
+  term   = \d+ / "(" expr ")"
+`;
+
+arith.actions = {
+  expr:   ([f, fs]) =>
+            fs.reduce((y, [op, x]) =>
+              op === '+'? y+x : y-x, f),   
+  factor: ([t, ts]) =>
+            ts.reduce((y, [op, x]) =>
+              op === "*"? y*x : y/x, t),
+  term:   (x) => Number(x) || x[1]
+}
+
+var e = arith.parse("1+2*(3+4)-5");
+
+write(e);
+````
+
+The action functions are called with two arguments:
+
+*   The rule result -- this is usually all that is required.
+*   A parse object: `{ name, action, pos, input, posit}`
+    - name: the rule name
+    - `action`: the action appended to the rule
+    - `pos`: the current input position (after the rule match)
+    - `input`: the input string being parsed
+    - `posit(i)`: a function to set a new position.
+
+The second argument parse object is not often needed, but it gives the action function access to information that can be useful for debugging, or for experimental actions (extending the buit-in functions), or even to take over for special case parsing if necesserary.
+
+It is good practice to first develop a grammar parser without using any semantic action functions. This first priority is to ensure that the grammar rules recognise input strings correctly, regardless of the structure of the parse tree. After that the rules may be reorganized to simplify the parse tree, and finally semantic actions may be employed to process the parse tree as needed by the application.
+
+It is important to remember that a semantic action may be called before the rule later fails as a component in another rule. This is too late for any side effects the semantic action may have generated.
+
 
 ### Built-in Functions
 
 The built-in functions:
 
+* `string` converts the result into a string.
+* `number` converts the result into a number.
+
+Synthetic `x_xx_x` function names can be used to select `x` or skip `_` components in a rule result.
+
+Rules of this form: `x (op x)*` are an idiomatic way to mastch lists with separators, or arthmetic expressions, and many other formats. These rules generate an awkward parse tree structure which can be simplified by these standard functions:
+
 * yfx returns a left associative tree.  e.g.  `1+2+3 => (1+2)+3`
 * xfy returns a right associative tree.  e.g. `2^3^4 => 2^(3^4)`
 * xfx returns a flat list including the operators. e.g. `1+2+3 => 1 + 2 + 3`
 * yfy returns a flat list including the operators. e.g. `1+2+3 => 1 2 3`
-* string converts the result into a string.
-* number converts the result into a number.
-* x is any result (without the default rule name label).
-* _ means ignore this result.
 
 The `yfx` and `xfy` actions generate parse tree nodes in this form:
 
 ``` eg
-    [rule_name, left_tree, right_tree]
+    [op, left_tree, right_tree]
 ```
 
 Here they are used to generate the desired parse tree for our arithmetic expression grammar:
 
 ``` sandbox
-const arith = String.raw`
+const expr = grit`
   expr   = factor ([+-] factor)*   : yfx
   factor = term ([*/] term)*       : yfx
   term   = prime ("^" prime)*      : xfy
@@ -198,8 +249,6 @@ const arith = String.raw`
   group  = "(" expr ")"            : _x_
   numb   = \d+                     : number
 `;
-
-const expr = grammar_parser(arith);
 
 write( expr.parse(`1+2+3+4+5`) );
 
@@ -222,72 +271,6 @@ The tree structures:
 
 The semantic actions can be thought of as a sort of type specification for the rule result, which can be appended to the end of the rule.
 
-### Custom Functions
-
-Custom functions are written as methods in an object that is passed into the `grammar_parser` function.
-
-For development debugging the action function can be used to log the results matched by a rule. 
-
-``` sandbox
-const rules = String.raw`
-    S    =  "a" [b]+ 'c'* nums
-    nums = (\s* \d+)*
-`;
-
-const actions = {
-    S: (x) => {
-        console.log('x=',x);
-        // return null; // rule fails
-        return x;
-    }
-};
-
-const test = grammar_parser(rules, actions);
-
-var p = test.parse("abbcc 123 456");
-
-write(p);
-````
-
-An example with semantic functions that translate the parse tree:
-
-``` sandbox
-const arith = String.raw`
-  expr   = factor ([+-] factor)*
-  factor = term ([*/] term)*
-  term   = \d+ / "(" expr ")"
-`;
-
-const evaluate = {
-  expr:   ([f, fs]) =>
-            fs.reduce((y, [op, x]) =>
-              op === '+'? y+x : y-x, f),   
-  factor: ([t, ts]) =>
-            ts.reduce((y, [op, x]) =>
-              op === "*"? y*x : y/x, t),
-  term:   (x) => Number(x) || x[1]
-}
-
-const expr = grammar_parser(arith, evaluate);
-
-var e = expr.parse("1+2*(3+4)-5");
-
-write(e);
-````
-
-The action functions are called with two arguments:
-
-*   The rule result -- this is usually all that is required.
-*   A parse object: `{ name, action, pos, input, posit}`
-    - name: the rule name
-    - `action`: the action appended to the rule
-    - `pos`: the current input position (after the rule match)
-    - `input`: the input string being parsed
-    - `posit(i)`: a function to set a new position.
-
-The rule result is usually all that is needed, but the parse parameter gives the action function access to information that can be useful for debugging, or for experimental actions (extending the buit-in functions), or even to take over for special case parsing if necesserary. 
-
-
 
 ##  Debug Trace
 
@@ -296,12 +279,11 @@ The `parse` function has a second argument for options, which can generate a tra
 Here is an example of using a trace:
 
 ``` eg
-    const arith = String.raw`
+    const arith = grit`
         expr   = factor ([+-] factor)*
         factor = term ([*/] term)*
         term   = \d+ / "(" expr ")"
     `;
-    const expr = grammar_parser(arith);
 
     var e = expr.parse("1+2*(3+4)-5", {trace: true} );
 
@@ -328,6 +310,59 @@ Here is an example of using a trace:
 ```
 The numbers on the left are the input position of the match components with the name of the rule the component is in. Only the input match operations are logged in the trace, they usually give the most useful information, and a full trace of all rules can be very verbose.  
 
+
+##  Grammar Grammar
+
+The grammar rules can define themselves. Here is a minimal grammar that is sufficient to define itself and parse itself:
+
+``` sandbox
+const g1 = String.raw`
+    grammar = (ws rule ws)+
+    rule    = name ws [=] expr
+
+    expr    = seq (ws [/] seq)*
+    seq     = ([ ]* term [*+?]?)*
+    term    = name / match / group
+
+    name    = [\w]+
+    match   = [[] [^\x5D]+ [\x5D] [*+?]?
+    group   = [(] expr [)]
+
+    ws      = [\s]*
+`;
+
+var p = grit(g1).parse(g1);
+
+print(p);
+
+```
+This grammar only accepts simple regex char-set string match components. 
+
+Here is the full grit grammar grammar:
+
+``` eg
+    grammar = rule+
+    rule    = name "=" expr ws act?
+
+    expr    = seq ("/" seq)*
+    seq     = (ws [&!]? term [*+?]?)*
+    term    = ref / quote / regex / group
+
+    name    = ws \w+
+    ref     = name !\s*=
+    group   = "(" expr ")"
+
+    quote   = '"' [^"]* '"' / "'" [^']* "'"
+    regex   = &[[\\^] (chs / par / misc)+
+    chs     = [\[] ([^\]\\]* ([\\][^])?)+ [\]]
+    par     = [(] ([^()]* par?)* [)]
+    misc    = [^[()\s]+
+
+    act     = ":" lines
+    lines   = line (\s* !\S+\s*= line)*
+    line    = [^\n\r]* 
+    ws      = \s*  
+```
 
 
 

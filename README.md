@@ -2,13 +2,9 @@
 
 The grit-parser makes grammar rules as easy to use as regular expressions.
 
-##  Usage
+##  Node.js Usage
 
     npm install grit-parser
-
-    or require the `grammar-parser.js` file in Node.js
-    
-    or load the `grammar-parser.js` file directly into a browser.    
 
 ## Example
 
@@ -29,12 +25,19 @@ The grit-parser makes grammar rules as easy to use as regular expressions.
 
     None
 
-The `grammar-parser.js` file is complete and self-contained, it has no external dependencies, and it exports a single function.
+The `grit-parser.js` file is complete and self-contained, it has no external dependencies, and it exports a single function.
+
+##  Other Usage
+
+Take a copy of the file: `grit-parser.js`
+    
+- Browser: load the `grit-parser.js` file. 
+- Node.js: require("./grit-parser.js");   
 
 ##  Documentation
 
 Introduction: https://pcanz.github.io/grammar-parser/introduction.md.html
 
-Documentation is in the `docs` folder, see: https://pcanz.github.io/grammar-parser/
+Source code & documentation, see: https://github.com/pcanz/grammar-parser/
 
 

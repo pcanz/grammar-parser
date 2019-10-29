@@ -406,14 +406,14 @@ function parser (code, input, actions={}, options={}) {
         case '/': // ["/", ..., alt, ... ]
             var start = pos;
             var res = null; // fail if no alt
-            var i = 1;
-            while (i < op.length) {
-                res = run(op[i]);
+            var j = 1;
+            while (j < op.length) {
+                res = run(op[j]);
                 if (res !== null && pos > start) {
                     return res;
                 }
                 pos = start;
-                i += 1;
+                j += 1;
             }
             return res;
 

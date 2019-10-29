@@ -1,0 +1,24 @@
+{
+  "name": "grit-parser",
+  "version": "3.0.2",
+  "description": "Grammar rules are simply better than regular expressions.",
+  "main": "grit-parser.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "node ./tests/test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://pcanz.github.io/grammar-parser"
+  },
+  "keywords": [
+    "grammar",
+    "parser",
+    "peg"
+  ],
+  "author": "Peter Cashin",
+  "license": "MIT"
+}

@@ -9,6 +9,8 @@ window.moko = {}
 <script>
 // Grammar Parser -- an evolution of Grit.
 
+// See docs at: https://github.com/pcanz/grammar-parser
+
 /*	The MIT License (MIT)
  *
  *	Copyright (c) 2015,2016,2017,2018,2019 Peter Cashin
@@ -32,83 +34,37 @@ window.moko = {}
  *  DEALINGS IN THE SOFTWARE.
  */
 
-/*
-    See docs at: https://github.com/pcanz/grammar-parser
-    
-    // Example usage:
-
-    const grammar_parser = require("./grammar-parser.js");
-
-    const cvs_rules = String.raw`
-        table  := nl* row+
-        row    := cells nl*
-        cells  := cell ("," cell)*
-        cell   := [^,\n\r]*
-        nl     := [\n] / [\r][\n]?
-    `;
-
-    const csv_actions = {
-        table: (_, rows) => rows,
-        cells: ([c, cs]) => 
-                cs.reduce((xs,[_,x]) => xs.concat(x),[c]),
-        cell:  (s) => s
-    }
-
-    const cvs = grammar_parser(cvs_rules, csv_actions);
-
-    var test = `
-    a1,b1,c1
-    a2,b2,c3
-    a3,b3,c3
-    `;
-
-    var parse_tree = cvs.parse(test);
-
-    console.log(JSON.stringify(parse_tree, null, 2));
-
-    // parse(input, options)
-
-    // options: { // default values...
-    //      trace: false,  // true to trace parse
-    //      replay: false, // to trace after parse failure
-    //      silent: false, // to not throw any faults or print reports
-    //      console: false // to use console.log (don't throw Errors)
-    //      report: null   // report faults when silent = true
-    //  }
-
-*/
-
 ;(function() { // module name-space wrapper -- see the end of this file...
 
-// -- grammar rule grammar ---------------------------------------
+/* -- grammar-rule grammar ---------------------------------------
 
-const grit_rules = String.raw`
     grammar = rule+
     rule    = name "=" expr ws act?
 
     expr    = seq ("/" seq)*
     seq     = (ws [&!]? term [*+?]?)*
-    term    = ref / match / group
+    term    = ref / quote / regex / group
 
     name    = ws \w+
     ref     = name !\s*=
-    match   = quote / regex
-    quote   = '"' [^"]* '"' / "'" [^']* "'"
-    regex   = &[[\\] (rex / par)*
-    rex     = [^\s[()]+|[[]([^\]\\]*([\\][^])?)*[\]]
-    par     = [(] ([^()]* par?)* [)]
     group   = "(" expr ")"
+
+    quote   = '"' [^"]* '"' / "'" [^']* "'"
+    regex   = &[[\\^] (chs / par / misc)+
+    chs     = [\[] ([^\]\\]* ([\\][^])?)+ [\]]
+    par     = [(] ([^()]* par?)* [)]
+    misc    = [^[()\s]+
 
     act     = ":" lines
     lines   = line (\s* !\S+\s*= line)*
     line    = [^\n\r]* 
     ws      = \s*  
-`;
+*/
 
 // -- parser code for grit_rules --------------------------------------
 
-// The parser is a byte-code style interpreter, but uses a
-// higher level array data structure with string values.
+// The parser is a byte-code style interpreter, but encodes
+// instructions an array data structure with string values.
 
 /* parser instruction codes:
 
@@ -143,8 +99,8 @@ const grit_code = [
         name: "seq",
         code: ["*",[",",["=","ws"],["^","[&!]?"],["=","term"],["^","[*+?]?"]]] },
 
-    {   name: "term", // term = ref / match / group
-        code: ["/",["=","ref"],["=","match"],["=","group"]] },
+    {   name: "term", // term = ref / quote/ regex / group
+        code: ["/",["=","ref"],["=","quote"],["=","regex"],["=","group"]] },
 
     {   name: "name", // name = ws \w+
         code: [",",["^","[\\s]*"],["^","[\\w]+"]] },
@@ -152,20 +108,20 @@ const grit_code = [
     {   name: "ref", // ref = name !\s*=
         code: [",",["=","name"],["!",["^","[\\s]*="]]] },
 
-    {   name: "match", // match = quote / regex
-        code: ["/",["=","quote"],["=","regex"]] },
-
     {   name: "quote", // quote = '"' [^"]* '"' / "'" [^']* "'"
         code: ["^","\\s*((?:'[^']*'|\"[^\"]*\")[\\w]*)"] },
 
-    {   name: "regex", // regex = &[[\\] (rex / par)*
-        code: [",",["&",["^","[[\\\\]"]],["*",["/",["=","rex"],["=","par"]]]] },
+    {   name: "regex", // regex = &[[\\^] (chs / par / misc)+
+        code: [",",["&",["^","[[\\\\^]"]],["+",["/",["=","chs"],["=","par"],["=","misc"]]]] },
 
-    {   name: "rex", // rex = [\s[()]+|[[]([^\]\\]*([\\][^])?)*[\]]
-        code: ["^","[^\\s[()]+|[[](?:[^\\]\\\\]*(?:[\\\\][^])?)*[\\]]"] },
+    {   name: "chs", // [\[] ([^\]\\]* ([\\][^])?)+ [\]]
+        code: ["^","[[](?:[^\\]\\\\]*(?:[\\\\][^])?)+[\\]]"] },
 
     {   name: "par", // par = [(] ([^()]* par?)* [)]
         code: [",",["^","[(]"],["*",[",",["^","[^()]*"],["?",["=","par"]]]],["^","[)]"]] },
+
+    {   name: "misc", // [^[()\s]+
+        code: ["^","[^[()\\s]+"] },
 
     {   name: "group", // group = "(" expr ")"
         code: [",",["^","\\s*\\("],["=","expr"],["^","\\s*\\)"]] },
@@ -179,7 +135,7 @@ const grit_code = [
         code: ["^","\\s*"] }
 ];
 
-resolve_code(grit_code);
+resolve_code(grit_code); // maps names to indexes & compiles regexes
 
 // -- compile peg rules into parser instruction codes --------------------
 
@@ -223,30 +179,27 @@ const grit_actions = { // semantic actions for parse tree nodes...
     // ref = name !\s*=
     "ref":  ([name, _]) => ["=", name, null],
 
-    // match = quote / regex
-    "match": (x) => x,
+    // group = "(" expr ")"
+    "group": ([_, expr]) => expr,
 
     // quote = '"' [^"]* '"' / "'" [^']* "'"
-    "quote": (str) => { // quote => regex: \s*("...")
+    "quote": (str) => { // quote => regex: \s*("...")\s*
+        if (str.length === 2) { // empty quotes..
+            return (str[0] === "'")? ["^","\uFFFF?"] : ["^","\\s*(\uFFFF?)"];
+        }
         qt = str.slice(1,-1);
         if (str[0] === "'") return ["^",esc_regex(qt)];
         return ["^","\\s*("+esc_regex(qt)+")\\s*"];
     },
 
-    // regex   = &[[\\] (rex / par)*
+    // regex   = &[[\\] (chs / par / misc)*
     "regex": ([_, rs]) => ["^", rs.join('')],
-
-    // rex = [^\s[()]+|[[]([^\]\\]*([\\][^])?)*[\]]
-    "rex": (x) => x,
 
     // par = [(] ([^()]* par?)* [)]
     "par": ([lp, ps, rp]) => { // par? => p, will be already done..
         var xps = ps.map(([x, p]) => p? x+p : x);
         return lp + xps.join('') + rp; 
     },
-
-    // group = "(" expr ")"
-    "group": ([_, expr]) => expr,
 
     // act = ":" lines
     "act": ([_, line, lines]) => {
@@ -259,7 +212,7 @@ const grit_actions = { // semantic actions for parse tree nodes...
 } // grit_actions
 
 function esc_regex(str) {
-    return str.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function rules_map(code) {
@@ -273,7 +226,7 @@ function resolve_code(code) {
     function resolve (op) {
         if (!Array.isArray(op)) return op;
         if (op[0] === "^") {
-            op[2] = op[2] || new RegExp(op[1],"y"); // sticky flag
+            op[2] = op[2] || new RegExp(op[1],"uy"); // unicode sticky flags
             return op;
         }
         if (op[0] === "=") {
@@ -285,7 +238,7 @@ function resolve_code(code) {
         }
         return op.map((x) => resolve(x));
     }
-    var coded = code.map((rule, idx) => {
+    var coded = code.map((rule) => {
         return resolve(rule.code);
     });
 
@@ -352,10 +305,10 @@ function number(xs) {
 
 function parser (code, input, actions={}, options={}) {
     var pos = 0;
-    var inRule = "start"; // rule trace 
+    var inRule = "start"; // current rule trace 
     var ruleStack = [];
     var maxPos = 0; // high water mark
-    var maxRule= "none"; // inRule at maxPos
+    var maxRule= ""; // inRule at maxPos
     var runOps = 0;
     var maxOps = 10000; // run away recursion check
 
@@ -462,18 +415,18 @@ function parser (code, input, actions={}, options={}) {
         case '/': // ["/", ..., alt, ... ]
             var start = pos;
             var res = null; // fail if no alt
-            var i = 1;
-            while (i < op.length) {
-                res = run(op[i]);
+            var j = 1;
+            while (j < op.length) {
+                res = run(op[j]);
                 if (res !== null && pos > start) {
                     return res;
                 }
                 pos = start;
-                i += 1;
+                j += 1;
             }
             return res;
 
-        case '*':
+        case '*': // ["*", op]
             var start = pos;
             var temp = run(op[1]);
             if (temp === null) return [];
@@ -486,7 +439,7 @@ function parser (code, input, actions={}, options={}) {
             }
             return res;
 
-        case '+':
+        case '+': // ["+", op]
             var start = pos;
             var temp = run(op[1]);
             if (temp === null) return null;
@@ -499,19 +452,19 @@ function parser (code, input, actions={}, options={}) {
             }
             return res;
 
-        case '?':
+        case '?': // ["?", op]
             var res = run(op[1])
             if (res === null) return "";
             return res;
 
-        case '!':
+        case '!': // ["!", op]
             var start = pos
             var res = run(op[1])
             pos = start
             if (res === null) return "";
             return null;
 
-        case '&':
+        case '&': // ["&", op]
             var start = pos
             var res = run(op[1])
             pos = start
@@ -568,7 +521,7 @@ function parser (code, input, actions={}, options={}) {
             var ax = action.match(/^\s*(\S+)/);
             act = ax? ax[1] : "";
             fn = actions[act] || std_actions[act];
-            if (!fn) { // synthetic std act...
+            if (!fn) { // synthetic action: _x_ etc..
                 if (act.match(/^[_x]+$/) && Array.isArray(result)) {
                     var res = [];
                     result.forEach((x, i) => {
@@ -594,6 +547,7 @@ function parser (code, input, actions={}, options={}) {
 
 } // parser
 
+
 // -- grammar_parser --------------------------------------------------------
 
 function grammar_parser (grammar, actions) {
@@ -602,15 +556,23 @@ function grammar_parser (grammar, actions) {
 
     if (!code) return null;
     
-    resolve_code(code)
+    resolve_code(code);
 
     function parse(input, options) {
-        return parser(code, input, actions, options);
+        return parser(code, input, this.actions, options);
+    };
+
+    function match(input, options) {
+        try {
+            var result = this.parse(input, options);
+        } catch(err) {
+            this.err = err;
+            return null;
+        }
+        return result;
     }
 
-    return Object.freeze({
-        parse, grammar, actions, code
-    })
+    return {parse, match, grammar, actions, code};
 }
 
 // module.exports = grammar_parser;
@@ -630,11 +592,6 @@ return this || (typeof window !== 'undefined' ? window : global);
 
 ;
 </script> 
-<style>
-td.demo-1, .demo-eg { margin-right:10pt; background:whitesmoke;
-                       padding: 0pt 10pt; }
-td.demo-2 { padding: 0pt 10pt; }
-</style>
 <script type="text/javascript">
     var moko = window.moko || (window.moko = {});
     moko.sandbox = {};
@@ -653,7 +610,8 @@ td.demo-2 { padding: 0pt 10pt; }
         try {
             var verbs = {
                 // grit: window.Grit,
-                grammar_parser: window.grammar_parser, // replaces grit,
+                grammar_parser: window.grammar_parser, // new grit,
+                grit: window.grammar_parser, // grit 3.x
                 write: (...args) => {
                     res += args.map((arg)=>
                         JSON.stringify(arg)).join(' ')+"\r\n\r\n";
@@ -686,37 +644,20 @@ td.demo-2 { padding: 0pt 10pt; }
 <style>
 textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
 </style>
+<style>
+td.demo-1, .demo-eg { margin-right:10pt; background:whitesmoke;
+                       padding: 0pt 10pt; }
+td.demo-2 { padding: 0pt 10pt; }
+</style>
 
 </head>
 <body>
-<h1><span id="sect-Grammar Parser Reference Guide"></span>Grammar Parser Reference Guide</h1>
-<p>The JavaScript implementation of the <code>grammar_parser</code> function is a single file with no dependencies. It uses the standard RegExp constructor to build its regex components.</p>
-<p>The source code can be found at: <a href="https://github.com/pcanz/grammar-parser">https://github.com/pcanz/grammar-parser</a></p>
-<p>Example usage, with a local copy of the <code>grammar-parser.js</code> file:</p>
-<pre class='demo-eg'>    const grammar_parser = require("./grammar-parser.js");
-
-    const cvs_rules = String.raw`
-        table  = row+
-        row    = cell ("," cell)* nl?
-        cell   = [^,\n\r]*
-        nl     = [\n] / [\r][\n]?
-    `;
-
-    const cvs = grammar_parser(cvs_rules);
-
-    var test = `
-    a1,b1,c1
-    a2,b2,c3
-    a3,b3,c3
-    `;
-
-    var parse_tree = cvs.parse(test);
-
-    console.log(JSON.stringify(parse_tree, null, 2));
-</pre>
+<h1><span id="sect-Grit Grammar Parser Reference"></span>Grit Grammar Parser Reference</h1>
+<p>This reference guide is for the the NPM <code>grit-parser</code> package.</p>
+<p>Project repository: <a href="https://github.com/pcanz/grammar-parser">https://github.com/pcanz/grammar-parser</a></p>
 <h2><span id="sect-PEG Rules"></span>PEG Rules</h2>
-<p>A grammar rule names a PEG expression which may contain string matching components.</p>
-<p>An expression <code>e</code> may be either:</p>
+<p>A grammar rule names a PEG expression that contains string pattern matching components.</p>
+<p>A PEG expression <code>e</code> may be either:</p>
 <ul>
 <li>a rule name reference -- to match the expression defined by that rule.</li>
 <li>a string match component -- to directly match the input text.</li>
@@ -734,14 +675,14 @@ textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
 <p>An empty match is not a failure, so: <code>e1* / e2</code> should never try to match e2. But in practice it is very easy to make this kind of mistake, and there seems to be no practical reason not to treat a match of nothing the same as a failure. So this is treated as a special case, and the parser will try to match <code>e2</code> if <code>e1</code> has not matched any input.</p>
 <p>Any PEG expression e can be given a predicate prefix:</p>
 <ul>
-<li><code>&amp;e</code> returns <code>[]</code> if e matches, else it fails. No input is consumed.</li>
-<li><code>!e</code> returns <code>[]</code> if e does NOT match, else it fails. No input is consumed.</li>
+<li><code>&amp;e</code> matches an empty string <code>''</code> if e matches, else it fails. No input is consumed.</li>
+<li><code>!e</code> matches an empty string <code>''</code> if e does NOT match, else it fails. No input is consumed.</li>
 </ul>
 <p>Any PEG expression e can be given a repeat suffix:</p>
 <ul>
 <li><code>e*</code> results in an array with zero or more matches.</li>
 <li><code>e+</code> results in an array with one or more matches.</li>
-<li><code>e?</code> will either match <code>e</code> or an empty array <code>[]</code>.</li>
+<li><code>e?</code> will either match <code>e</code> or an empty string <code>''</code>.</li>
 </ul>
 <p>The result of a repeat is always the longest match and no other.</p>
 <ul>
@@ -771,12 +712,11 @@ textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
 <li>
 <p>A regex to match a regular expression.</p>
 <ul>
-<li>a regex must start with <code>[ or \</code></li>
-<li>for example: <code>[abc] or \d</code></li>
-<li>suffix repeats can be included in the regex, eg: <code>[abc]* or \d+</code></li>
-<li>a regex will not skip leading white-space</li>
-<li>after the start the regex is not restricted, it can be almost anything</li>
-<li>for example: <code>[abc]*(\s*\d+)*</code></li>
+<li>a regex must start with <code>[</code> or <code>\</code> or <code>^</code></li>
+<li>for example: <code>[abc]</code> or <code>\d</code> or <code>^(abc)</code></li>
+<li>suffix repeats can be included in the regex, eg: <code>[abc]*</code> or <code>\d+</code></li>
+<li>after the start the regex is not restricted (it can be any valid RegExp)</li>
+<li>for example: <code>[abc]*(\s*\d{3,4})*</code></li>
 <li>the complete regex is evaluated as a single regular expression</li>
 <li>a regex can not contain any white-space, except in brackets, eg: <code>[ \t]*</code></li>
 <li>the result is the full matched string, or the first capture group if there is one.</li>
@@ -787,179 +727,150 @@ textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
 <pre><code>'a+b+c' =&gt; regex: [a]\+b\+c
 &quot;a+b+c&quot; =&gt; regex: \s*(a\+b\+c)\s*
 </code></pre>
-<p>The regex components should be kept simple, such as a char-set eg: <code>[abc]</code>, or a repeated char-class eg: <code>\d+</code>. There is no loss of expressive power in keeping the regex matches simple since they are components in a larger PEG grammar. PEG logic can be used for lookahead tests eg: <code>&amp;x</code> for positive lookahead tests, or <code>!x</code> for negative lookahead tests, or a semantic action can be used.</p>
-<p>Simple regex components also eliminate troublesome issues with some regular expression implementations, see [Russ Cox] for details.</p>
-<h2><span id="sect-Grammar Grammar"></span>Grammar Grammar</h2>
-<p>The grammar rules can define themselves. Here is a minimal grammar that is sufficient to define itself and parse itself:</p>
-<pre class='demo-eg'>    grammar = (ws rule ws)+
-    rule    = name ws [=] expr
-
-    expr    = seq (ws [/] seq)*
-    seq     = ([ ]* term [*+?]?)*
-    term    = name / match / group
-
-    name    = [\w]+
-    match   = [[] [^\x5D]+ [\x5D] [*+?]?
-    group   = [(] expr [)]
-
-    ws      = [\s]*
-</pre>
-<p>This grammar only accepts simple regex char-set string match components.</p>
-<p>Here is the full <code>grammar_parser</code> definiton:</p>
-<pre class='demo-eg'>    grammar = rule+
-    rule    = name "=" expr ws act?
-
-    expr    = seq ("/" seq)*
-    seq     = (ws [&amp;!]? term [*+?]?)*
-    term    = ref / match / group
-
-    name    = ws \w+
-    ref     = name !\s*=
-    match   = quote / regex
-    quote   = '"' [^"]* '"' / "'" [^']* "'"
-    regex   = &amp;[[\\] (rex / par)*
-    rex     = [^\s[()]+|[[]([^\]\\]*([\\][^])?)*[\]]
-    par     = [(] ([^()]* par?)* [)]
-    group   = "(" expr ")"
-
-    act     = ":" lines
-    lines   = line (\s* !\S+\s*= line)*
-    line    = [^\n\r]* 
-    ws      = \s*  
-</pre>
+<p>A <code>^</code> in a regex will only match at the beginning, but since each regex component is treated as a separate match it is not necesary to use a <code>^</code> at the start of a regex component (but it does no harm). Since any regex <em>may</em> begin with a <code>^</code> is can be used to introduce any regex component, for example, <code>^(x)+</code> is a regex to match one or more x characters, but <code>(x)+</code> is not a regex, it will match a list of one or more <code>x</code> rules.</p>
+<p>Ideally the regex components should be kept simple, such as a char-set eg: <code>[abc]</code>, or a repeated char-class eg: <code>\d+</code>. There is no loss of expressive power in keeping the regex matches simple since they are components in a larger PEG grammar. The PEG logic can include lookahead tests eg: <code>&amp;x</code> for positive lookahead tests, or <code>!x</code> for negative lookahead tests, or a semantic action can be used.</p>
+<p>Simple regex components also eliminate troublesome issues with some regular expression implementations, see <a href="https://swtch.com/~rsc/regexp/regexp1.html">Russ Cox</a> for details.</p>
 <h2><span id="sect-Semantic Actions"></span>Semantic Actions</h2>
-<p>A semantic action function name may be appended to to a rule with a <code>:</code> separator.</p>
-<p>Custom semantic action functions can be defined in the host programming languiage and passed into the the grammar_parser function along with the grammar rules.</p>
-<p>If the rule has an attached semantic action function name that matches a custom function then that function will be given the rule match results. The result from the rule will then be the result of the semantic action function.</p>
-<p>If the semantic action returns <code>null</code> then the rule will fail, any other result can be used as the rule result.</p>
-<p>If the rule has a semantic action function name that does not match a custom function then it may match a standard built-in function name.</p>
-<p>If a rule has no attached semantic action, but there is a custom fuction with the same name as the rule, then this custom function will be applied to the results of this rule.</p>
-<h3><span id="sect-Built-in Functions"></span>Built-in Functions</h3>
-<p>The built-in functions:</p>
-<ul>
-<li>yfx returns a left associative tree.  e.g.  <code>1+2+3 =&gt; (1+2)+3</code></li>
-<li>xfy returns a right associative tree.  e.g. <code>2^3^4 =&gt; 2^(3^4)</code></li>
-<li>xfx returns a flat list including the operators. e.g. <code>1+2+3 =&gt; 1 + 2 + 3</code></li>
-<li>yfy returns a flat list including the operators. e.g. <code>1+2+3 =&gt; 1 2 3</code></li>
-<li>string converts the result into a string.</li>
-<li>number converts the result into a number.</li>
-<li>x is any result (without the default rule name label).</li>
-<li>_ means ignore this result.</li>
-</ul>
-<p>The <code>yfx</code> and <code>xfy</code> actions generate parse tree nodes in this form:</p>
-<pre class='demo-eg'>    [rule_name, left_tree, right_tree]
-</pre>
-<p>Here they are used to generate the desired parse tree for our arithmetic expression grammar:</p>
+<p>Semantic actions are functions that are appled to the result of a rule match. The actions are defined as properties of an object, which can be assigned to the <code>actions</code> property of a parser:</p>
 
   <div class="sandbox controls">
     
-      <button onClick='sandbox.RESET(1)' >Example 1</button>
+      <select id="sandbox-select-1" onchange="sandbox.SELECT(1)">
+      
+      <option value='1'>Example 1.1</option>
+      <option value='2'>Example 1.2</option>
+      </select>
     <button onClick='sandbox.RUN(1)'
             style="vertical-align:top">RUN</button>
   </div>
-  <textarea id='sandbox-src-1' cols=52 rows=18>const arith = String.raw`
-  expr   = factor ([+-] factor)*   : yfx
-  factor = term ([*/] term)*       : yfx
-  term   = prime ("^" prime)*      : xfy
-  prime  = numb / group            : x
-  group  = "(" expr ")"            : _x_
-  numb   = \d+                     : number
+  <textarea id='sandbox-src-1' style="width:49%" rows=20>const mdy = grit`
+    date  = month '/' day '/' year
+    day   = \d+
+    month = \d{1,2}
+    year  = \d{4}
 `;
 
-const expr = grammar_parser(arith);
+mdy.actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    day: (d) => Number(d),
+    month: (m) => Number(m),
+    year: (y) => Number(y)
+}
 
-write( expr.parse(`1+2+3+4+5`) );
+var dt = mdy.parse("3/4/2019");
 
-write( expr.parse(`2^3^4`) );
-
-write( expr.parse(`1+2+3*(4+5)-6`) );
-
-</textarea>
-  <textarea id='sandbox-dst-1' cols=52 rows=18 ></textarea>
+write(dt);</textarea>
+  <textarea id='sandbox-dst-1' style="width:49%" rows=20></textarea>
   
-      <textarea id='sandbox-eg-1-0' hidden>const arith = String.raw`
-  expr   = factor ([+-] factor)*   : yfx
-  factor = term ([*/] term)*       : yfx
-  term   = prime ("^" prime)*      : xfy
-  prime  = numb / group            : x
-  group  = "(" expr ")"            : _x_
-  numb   = \d+                     : number
+      <textarea id='sandbox-eg-1-0' hidden>const mdy = grit`
+    date  = month '/' day '/' year
+    day   = \d+
+    month = \d{1,2}
+    year  = \d{4}
 `;
 
-const expr = grammar_parser(arith);
+mdy.actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    day: (d) => Number(d),
+    month: (m) => Number(m),
+    year: (y) => Number(y)
+}
 
-write( expr.parse(`1+2+3+4+5`) );
+var dt = mdy.parse("3/4/2019");
 
-write( expr.parse(`2^3^4`) );
+write(dt);</textarea>
+      <textarea id='sandbox-eg-1-1' hidden>const grammar = String.raw`
+    date  = month '/' day '/' year
+    day   = \d+
+    month = \d{1,2}
+    year  = \d{4}
+`;
 
-write( expr.parse(`1+2+3*(4+5)-6`) );
+const actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    day: (d) => Number(d),
+    month: (m) => Number(m),
+    year: (y) => Number(y)
+}
 
+const mdy = grit(grammar, actions);
+
+var dt = mdy.parse("3/4/2019");
+
+write(dt);
 </textarea>
   <script>sandbox.RUN(1)</script><br>
 
-<p>The tree structures:</p>
-<pre><code class="language-box">              +                 ^          
-             / \               / \         
-  yfx:      +   4      xfy:   1   ^        xfx:  1 + 2 + 3 + 4    yfy:  1 2 3 4 
-           / \                   / \
-          +   3                 2   ^    
-         / \                       / \
-        1   2                     3   4     
-</code></pre>
-<p>The semantic actions can be thought of as a sort of type specification for the rule result, which can be appended to the end of the rule.</p>
-<h3><span id="sect-Custom Functions"></span>Custom Functions</h3>
-<p>Custom functions are written as methods in an object that is passed into the <code>grammar_parser</code> function.</p>
-<p>For development debugging the action function can be used to log the results matched by a rule.</p>
+<p>The function name corresponding to the rule name will be called with the result matched by that rule.</p>
+<p>The grit grammar parser constructor function may also be called with two arguments: the grammar rules, and the action functions, as in example 1.2.</p>
+<p>The name of a semantic action function may be appended to a rule with a <code>:</code> separator:</p>
 
   <div class="sandbox controls">
     
-      <button onClick='sandbox.RESET(2)' >Example 2</button>
+      <select id="sandbox-select-2" onchange="sandbox.SELECT(2)">
+      
+      <option value='1'>Example 2.1</option>
+      <option value='2'>Example 2.2</option>
+      </select>
     <button onClick='sandbox.RUN(2)'
             style="vertical-align:top">RUN</button>
   </div>
-  <textarea id='sandbox-src-2' cols=52 rows=19>const rules = String.raw`
-    S    =  "a" [b]+ 'c'* nums
-    nums = (\s* \d+)*
+  <textarea id='sandbox-src-2' style="width:49%" rows=18>const mdy = grit`
+    date  = month '/' day '/' year : date
+    day   = \d+                    : num
+    month = \d{1,2}                : num
+    year  = \d{4}                  : num
 `;
 
-const actions = {
-    S: (x) => {
-        console.log('x=',x);
-        // return null; // rule fails
-        return x;
-    }
-};
+mdy.actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    num: (n) => Number(n)
+}
 
-const test = grammar_parser(rules, actions);
+var dt = mdy.parse("3/4/2019");
 
-var p = test.parse("abbcc 123 456");
-
-write(p);
-</textarea>
-  <textarea id='sandbox-dst-2' cols=52 rows=19 ></textarea>
+write(dt);</textarea>
+  <textarea id='sandbox-dst-2' style="width:49%" rows=18></textarea>
   
-      <textarea id='sandbox-eg-2-0' hidden>const rules = String.raw`
-    S    =  "a" [b]+ 'c'* nums
-    nums = (\s* \d+)*
+      <textarea id='sandbox-eg-2-0' hidden>const mdy = grit`
+    date  = month '/' day '/' year : date
+    day   = \d+                    : num
+    month = \d{1,2}                : num
+    year  = \d{4}                  : num
+`;
+
+mdy.actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    num: (n) => Number(n)
+}
+
+var dt = mdy.parse("3/4/2019");
+
+write(dt);</textarea>
+      <textarea id='sandbox-eg-2-1' hidden>const grammar = String.raw`
+    date  = month '/' day '/' year : date
+    day   = \d+                    : num
+    month = \d{1,2}                : num
+    year  = \d{4}                  : num
 `;
 
 const actions = {
-    S: (x) => {
-        console.log('x=',x);
-        // return null; // rule fails
-        return x;
-    }
-};
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    num: (d) => Number(d)
+}
 
-const test = grammar_parser(rules, actions);
+const mdy = grit(grammar, actions);
 
-var p = test.parse("abbcc 123 456");
+var dt = mdy.parse("3/4/2019");
 
-write(p);
+write(dt);
 </textarea>
   <script>sandbox.RUN(2)</script><br>
 
-<p>An example with semantic functions that translate the parse tree:</p>
+<p>If the semantic action returns <code>null</code> then the rule will fail, otherwise the action may return any result as the rule result.</p>
+<p>If the rule has a semantic action function name that does not match a custom function then it may match a standard built-in function name.</p>
+<p>An application program can always process the default parse tree without using any semantic actions(in that case the parse tree result will be an array of arrays of string values). But it is often more convenient to break the parse tree processing into smaller functions applied to the result of an individual rule.</p>
+<p>For example, a calculator application could process the parse tree for arithmetic expressions, but it is simpler to break the calculator application into semantic action functions that incrementally process the results of individual grammar rules:</p>
 
   <div class="sandbox controls">
     
@@ -967,13 +878,13 @@ write(p);
     <button onClick='sandbox.RUN(3)'
             style="vertical-align:top">RUN</button>
   </div>
-  <textarea id='sandbox-src-3' cols=52 rows=22>const arith = String.raw`
+  <textarea id='sandbox-src-3' style="width:49%" rows=20>const arith = grit`
   expr   = factor ([+-] factor)*
   factor = term ([*/] term)*
   term   = \d+ / "(" expr ")"
 `;
 
-const evaluate = {
+arith.actions = {
   expr:   ([f, fs]) =>
             fs.reduce((y, [op, x]) =>
               op === '+'? y+x : y-x, f),   
@@ -983,21 +894,19 @@ const evaluate = {
   term:   (x) => Number(x) || x[1]
 }
 
-const expr = grammar_parser(arith, evaluate);
-
-var e = expr.parse("1+2*(3+4)-5");
+var e = arith.parse("1+2*(3+4)-5");
 
 write(e);
 </textarea>
-  <textarea id='sandbox-dst-3' cols=52 rows=22 ></textarea>
+  <textarea id='sandbox-dst-3' style="width:49%" rows=20></textarea>
   
-      <textarea id='sandbox-eg-3-0' hidden>const arith = String.raw`
+      <textarea id='sandbox-eg-3-0' hidden>const arith = grit`
   expr   = factor ([+-] factor)*
   factor = term ([*/] term)*
   term   = \d+ / "(" expr ")"
 `;
 
-const evaluate = {
+arith.actions = {
   expr:   ([f, fs]) =>
             fs.reduce((y, [op, x]) =>
               op === '+'? y+x : y-x, f),   
@@ -1007,9 +916,7 @@ const evaluate = {
   term:   (x) => Number(x) || x[1]
 }
 
-const expr = grammar_parser(arith, evaluate);
-
-var e = expr.parse("1+2*(3+4)-5");
+var e = arith.parse("1+2*(3+4)-5");
 
 write(e);
 </textarea>
@@ -1028,16 +935,88 @@ write(e);
 </ul>
 </li>
 </ul>
-<p>The rule result is usually all that is needed, but the parse parameter gives the action function access to information that can be useful for debugging, or for experimental actions (extending the buit-in functions), or even to take over for special case parsing if necesserary.</p>
+<p>The second argument parse object is not often needed, but it gives the action function access to information that can be useful for debugging, or for experimental actions (extending the buit-in functions), or even to take over for special case parsing if necesserary.</p>
+<p>It is good practice to first develop a grammar parser without using any semantic action functions. This first priority is to ensure that the grammar rules recognise input strings correctly, regardless of the structure of the parse tree. After that the rules may be reorganized to simplify the parse tree, and finally semantic actions may be employed to process the parse tree as needed by the application.</p>
+<p>It is important to remember that a semantic action may be called before the rule later fails as a component in another rule. This is too late for any side effects the semantic action may have generated.</p>
+<h3><span id="sect-Built-in Functions"></span>Built-in Functions</h3>
+<p>The built-in functions:</p>
+<ul>
+<li><code>string</code> converts the result into a string.</li>
+<li><code>number</code> converts the result into a number.</li>
+</ul>
+<p>Synthetic <code>x_xx_x</code> function names can be used to select <code>x</code> or skip <code>_</code> components in a rule result.</p>
+<p>Rules of this form: <code>x (op x)*</code> are an idiomatic way to mastch lists with separators, or arthmetic expressions, and many other formats. These rules generate an awkward parse tree structure which can be simplified by these standard functions:</p>
+<ul>
+<li>yfx returns a left associative tree.  e.g.  <code>1+2+3 =&gt; (1+2)+3</code></li>
+<li>xfy returns a right associative tree.  e.g. <code>2^3^4 =&gt; 2^(3^4)</code></li>
+<li>xfx returns a flat list including the operators. e.g. <code>1+2+3 =&gt; 1 + 2 + 3</code></li>
+<li>yfy returns a flat list including the operators. e.g. <code>1+2+3 =&gt; 1 2 3</code></li>
+</ul>
+<p>The <code>yfx</code> and <code>xfy</code> actions generate parse tree nodes in this form:</p>
+<pre class='demo-eg'>    [op, left_tree, right_tree]
+</pre>
+<p>Here they are used to generate the desired parse tree for our arithmetic expression grammar:</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(4)' >Example 4</button>
+    <button onClick='sandbox.RUN(4)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-4' style="width:49%" rows=16>const expr = grit`
+  expr   = factor ([+-] factor)*   : yfx
+  factor = term ([*/] term)*       : yfx
+  term   = prime ("^" prime)*      : xfy
+  prime  = numb / group            : x
+  group  = "(" expr ")"            : _x_
+  numb   = \d+                     : number
+`;
+
+write( expr.parse(`1+2+3+4+5`) );
+
+write( expr.parse(`2^3^4`) );
+
+write( expr.parse(`1+2+3*(4+5)-6`) );
+
+</textarea>
+  <textarea id='sandbox-dst-4' style="width:49%" rows=16></textarea>
+  
+      <textarea id='sandbox-eg-4-0' hidden>const expr = grit`
+  expr   = factor ([+-] factor)*   : yfx
+  factor = term ([*/] term)*       : yfx
+  term   = prime ("^" prime)*      : xfy
+  prime  = numb / group            : x
+  group  = "(" expr ")"            : _x_
+  numb   = \d+                     : number
+`;
+
+write( expr.parse(`1+2+3+4+5`) );
+
+write( expr.parse(`2^3^4`) );
+
+write( expr.parse(`1+2+3*(4+5)-6`) );
+
+</textarea>
+  <script>sandbox.RUN(4)</script><br>
+
+<p>The tree structures:</p>
+<pre><code class="language-box">              +                 ^          
+             / \               / \         
+  yfx:      +   4      xfy:   1   ^        xfx:  1 + 2 + 3 + 4    yfy:  1 2 3 4 
+           / \                   / \
+          +   3                 2   ^    
+         / \                       / \
+        1   2                     3   4     
+</code></pre>
+<p>The semantic actions can be thought of as a sort of type specification for the rule result, which can be appended to the end of the rule.</p>
 <h2><span id="sect-Debug Trace"></span>Debug Trace</h2>
 <p>The <code>parse</code> function has a second argument for options, which can generate a trace log to help debug a grammar.</p>
 <p>Here is an example of using a trace:</p>
-<pre class='demo-eg'>    const arith = String.raw`
+<pre class='demo-eg'>    const arith = grit`
         expr   = factor ([+-] factor)*
         factor = term ([*/] term)*
         term   = \d+ / "(" expr ")"
     `;
-    const expr = grammar_parser(arith);
 
     var e = expr.parse("1+2*(3+4)-5", {trace: true} );
 
@@ -1063,6 +1042,83 @@ write(e);
 
 </pre>
 <p>The numbers on the left are the input position of the match components with the name of the rule the component is in. Only the input match operations are logged in the trace, they usually give the most useful information, and a full trace of all rules can be very verbose.</p>
+<h2><span id="sect-Grammar Grammar"></span>Grammar Grammar</h2>
+<p>The grammar rules can define themselves. Here is a minimal grammar that is sufficient to define itself and parse itself:</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(5)' >Example 5</button>
+    <button onClick='sandbox.RUN(5)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-5' style="width:49%" rows=20>const g1 = String.raw`
+    grammar = (ws rule ws)+
+    rule    = name ws [=] expr
+
+    expr    = seq (ws [/] seq)*
+    seq     = ([ ]* term [*+?]?)*
+    term    = name / match / group
+
+    name    = [\w]+
+    match   = [[] [^\x5D]+ [\x5D] [*+?]?
+    group   = [(] expr [)]
+
+    ws      = [\s]*
+`;
+
+var p = grit(g1).parse(g1);
+
+print(p);
+
+</textarea>
+  <textarea id='sandbox-dst-5' style="width:49%" rows=20></textarea>
+  
+      <textarea id='sandbox-eg-5-0' hidden>const g1 = String.raw`
+    grammar = (ws rule ws)+
+    rule    = name ws [=] expr
+
+    expr    = seq (ws [/] seq)*
+    seq     = ([ ]* term [*+?]?)*
+    term    = name / match / group
+
+    name    = [\w]+
+    match   = [[] [^\x5D]+ [\x5D] [*+?]?
+    group   = [(] expr [)]
+
+    ws      = [\s]*
+`;
+
+var p = grit(g1).parse(g1);
+
+print(p);
+
+</textarea>
+  <script>sandbox.RUN(5)</script><br>
+
+<p>This grammar only accepts simple regex char-set string match components.</p>
+<p>Here is the full grit grammar grammar:</p>
+<pre class='demo-eg'>    grammar = rule+
+    rule    = name "=" expr ws act?
+
+    expr    = seq ("/" seq)*
+    seq     = (ws [&amp;!]? term [*+?]?)*
+    term    = ref / quote / regex / group
+
+    name    = ws \w+
+    ref     = name !\s*=
+    group   = "(" expr ")"
+
+    quote   = '"' [^"]* '"' / "'" [^']* "'"
+    regex   = &amp;[[\\^] (chs / par / misc)+
+    chs     = [\[] ([^\]\\]* ([\\][^])?)+ [\]]
+    par     = [(] ([^()]* par?)* [)]
+    misc    = [^[()\s]+
+
+    act     = ":" lines
+    lines   = line (\s* !\S+\s*= line)*
+    line    = [^\n\r]* 
+    ws      = \s*  
+</pre>
 
 </body>
 </html>

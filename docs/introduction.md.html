@@ -50,7 +50,7 @@ window.moko = {}
     group   = "(" expr ")"
 
     quote   = '"' [^"]* '"' / "'" [^']* "'"
-    regex   = &[[\\] (chs / par / misc)+
+    regex   = &[[\\^] (chs / par / misc)+
     chs     = [\[] ([^\]\\]* ([\\][^])?)+ [\]]
     par     = [(] ([^()]* par?)* [)]
     misc    = [^[()\s]+
@@ -111,8 +111,8 @@ const grit_code = [
     {   name: "quote", // quote = '"' [^"]* '"' / "'" [^']* "'"
         code: ["^","\\s*((?:'[^']*'|\"[^\"]*\")[\\w]*)"] },
 
-    {   name: "regex", // regex = &[[\\] (chs / par / misc)+
-        code: [",",["&",["^","[[\\\\]"]],["+",["/",["=","chs"],["=","par"],["=","misc"]]]] },
+    {   name: "regex", // regex = &[[\\^] (chs / par / misc)+
+        code: [",",["&",["^","[[\\\\^]"]],["+",["/",["=","chs"],["=","par"],["=","misc"]]]] },
 
     {   name: "chs", // [\[] ([^\]\\]* ([\\][^])?)+ [\]]
         code: ["^","[[](?:[^\\]\\\\]*(?:[\\\\][^])?)+[\\]]"] },
@@ -415,14 +415,14 @@ function parser (code, input, actions={}, options={}) {
         case '/': // ["/", ..., alt, ... ]
             var start = pos;
             var res = null; // fail if no alt
-            var i = 1;
-            while (i < op.length) {
-                res = run(op[i]);
+            var j = 1;
+            while (j < op.length) {
+                res = run(op[j]);
                 if (res !== null && pos > start) {
                     return res;
                 }
                 pos = start;
-                i += 1;
+                j += 1;
             }
             return res;
 
@@ -652,14 +652,14 @@ td.demo-2 { padding: 0pt 10pt; }
 
 </head>
 <body>
-<h1><span id="sect-Grammar Parsers"></span>Grammar Parsers</h1>
+<h1><span id="sect-Introduction To Grammar Parsers"></span>Introduction To Grammar Parsers</h1>
 <p>Regular expressions are a standard tool in every programmers tool-box. But grammar rules are rarley used, they seem to be reserved for specialists such as language designers and compiler writers.</p>
 <p>This is a pity, since grammar rules make nice specifications, and they can be simpler and more expressive than regular expressions.</p>
 <p>The traditional approach is to start with a grammar as a specification. A parser may be hand coded to match the grammar specification. Or special tools may be used to compile a suitably modified version of the grammar specification, and generate program code for a parser.</p>
 <p>Here we take a different approach, using grammar rules that can be directly executed in a program, in much the same way as regular expressions. These grammar rules are both simpler and more powerful than using bare regular expressions. They provide an easy way for a programmer to organize and manage their use of regular expresssions.</p>
 <p>We will use a form of <a href="https://en.wikipedia.org/wiki/Parsing_expression_grammar">PEG</a> (Parser Expression Grammar) rules, which can contain regular expression elements. The grammar rules can name other grammar rules as component parts. This will be explained shortly, but the general idea should be reasonably obvious.</p>
 <p>Using PEG rules eliminates the need for a pre-parse <a href="https://en.wikipedia.org/wiki/Lexical_analysis">lexer</a> which traditional grammar tools employ. The PEG grammar rules directly recognize (pattern match) input text strings.</p>
-<p>The grammar rules can be used in almost any programming language. We will use JavaScript here in order to show running examples, and to compare grammar rules with regular expressions. To do that we will need to introduce a few programming language details, but the grammar rules themselves are independent of the host programming language.</p>
+<p>The grammar rules can be used in almost any programming language. We will use the  JavaScript <a href="https://github.com/pcanz/grammar-parser/"><code>grit-parser</code></a> in order to show running examples, and to compare grammar rules with regular expressions. To do that we will need to introduce a few programming language details, but the grammar rules themselves are independent of the host programming language.</p>
 <h2><span id="sect-A First Example"></span>A First Example</h2>
 <p>The first example is to match a date format, such as &ldquo;3/4/2019&rdquo;, which some people see as the 3rd of April, and others as the 4th of March. If we ignore the semantics, the syntax is almost trivial, and our first task is simply to match the pattern in this date format.</p>
 <p>First we will look at a standard regular expression to match a date pattern:</p>
@@ -769,7 +769,7 @@ write(date_match); // ===>
 </textarea>
   <script>sandbox.RUN(2)</script><br>
 
-<p>The <code>grit</code> function corresponds to the <code>RegExp</code> object, it is a function that takes the grammar rules as input and returns a parser function. The source code for the <code>grit</code> grammar parser can be found at: <a href="https://github.com/pcanz/grammar-parser">https://github.com/pcanz/grammar-parser</a></p>
+<p>The <code>grit</code> function corresponds to the <code>RegExp</code> object, it is a function that takes the grammar rules as input and returns a parser function. The source code for the <code>grit</code> grammar parser can be found at: <a href="https://github.com/pcanz/grammar-parser/">https://github.com/pcanz/grammar-parser/</a></p>
 <p>The date grammar rule is quite similar to the date regular expression rule, the big difference is that the grammar rule has a name (before the <code>=</code> symbol), and the rule uses white-space to separate the component parts (extra white-space is insignificant).</p>
 <pre class='demo-eg'>    regular expression:  (\d+)/(\d+)/(\d+)
     grammar rule:        date = \d+ '/' \d+ '/' \d+
@@ -1090,7 +1090,7 @@ write(arr)
   escaped = esc+
   esc     = ["] [^"]* ["]
   txt     = [^,"\n\r]*
-  nl      = \n / \r\n?
+  nl      = \n|\r\n?
 `;
 
 const CSV = grit(CSV_grammar);
@@ -1114,7 +1114,7 @@ write(output);
   escaped = esc+
   esc     = ["] [^"]* ["]
   txt     = [^,"\n\r]*
-  nl      = \n / \r\n?
+  nl      = \n|\r\n?
 `;
 
 const CSV = grit(CSV_grammar);
@@ -1183,7 +1183,7 @@ write(arr)
 <p>The PEG <code>/</code> choice operator is simpler than a regular expression <code>|</code> choice operator, it will match the first choice it can, and it will only try to match the next choice if the preceeding choice has failed. There is no back-tracking to try again later</p>
 <p>The repeat operators: *, +, ? are also simpler than the regex operators since they can only match in one way, giving the maximum length match.</p>
 <p>A simple regex component with a repeat suffix can not be logically distinguished from a PEG repeat operator (since there is no backtracking to let the regex try again). It is best to keep regex components simple, but a more complex regex component can be used, and they may employ regex logic internally. A regex component returns a string match result.</p>
-<p>The lack of backtracking in the PEG logic can make it quite different from a regex. For example, here is a sequence of two regex components in a grammar rule that will fail to match an input that the same two components could match, if they were combined into a single regex:</p>
+<p>The lack of backtracking in the PEG logic can sometimes make it quite different from a regex. For example, here are two regex components that will fail on an input that the same two components will match if they are combined into a single regex:</p>
 <pre class='demo-eg'>    [ab]+ [bc]+  -- fails on: "abb" (the [bc]+ finds nothing left to match).
 
     [ab]+[bc]+ -- will math: "abb" (after backtracking the [bc]+ will match the last b).
