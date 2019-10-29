@@ -38,6 +38,6 @@ Take a copy of the file: `grit-parser.js`
 
 Introduction: https://pcanz.github.io/grammar-parser/introduction.md.html
 
-Source code & documentation, see: https://github.com/pcanz/grammar-parser/
+Web-site: https://pcanz.github.io/grammar-parser/
 
 
