@@ -1,4 +1,4 @@
-#	 Introduction To Grammar Parsers
+#	 Introduction To The Grit Grammar Parser
 
 Regular expressions are a standard tool in every programmers tool-box. But grammar rules are rarley used, they seem to be reserved for specialists such as language designers and compiler writers.
 
@@ -6,16 +6,16 @@ This is a pity, since grammar rules make nice specifications, and they can be si
 
 The traditional approach is to start with a grammar as a specification. A parser may be hand coded to match the grammar specification. Or special tools may be used to compile a suitably modified version of the grammar specification, and generate program code for a parser. 
 
-Here we take a different approach, using grammar rules that can be directly executed in a program, in much the same way as regular expressions. These grammar rules are both simpler and more powerful than using bare regular expressions. They provide an easy way for a programmer to organize and manage their use of regular expresssions.
+The [Grit Grammar Parser] take a different approach, with grammar rules that can be directly executed in a program, in much the same way as regular expressions. These grammar rules are both simpler and more powerful than using bare regular expressions. They provide an easy way for a programmer to organize and manage their use of regular expresssions.
 
-We will use a form of [PEG] (Parser Expression Grammar) rules, which can contain regular expression elements. The grammar rules can name other grammar rules as component parts. This will be explained shortly, but the general idea should be reasonably obvious.
+[Grit Grammar Parser]: https://github.com/pcanz/grammar-parser/
 
-Using PEG rules eliminates the need for a pre-parse [lexer] which traditional grammar tools employ. The PEG grammar rules directly recognize (pattern match) input text strings. 
+The [Grit Grammar Parser] uses a form of [PEG] (Parser Expression Grammar) rules, which can contain regular expression elements. Using PEG rules eliminates the need for a pre-parse [lexer] which traditional grammar tools employ. The PEG grammar rules directly recognize (pattern match) input text strings. 
 
 [PEG]: https://en.wikipedia.org/wiki/Parsing_expression_grammar
 [lexer]: https://en.wikipedia.org/wiki/Lexical_analysis
 
-The grammar rules can be used in almost any programming language. We will use the  JavaScript [`grit-parser`] in order to show running examples, and to compare grammar rules with regular expressions. To do that we will need to introduce a few programming language details, but the grammar rules themselves are independent of the host programming language.
+The grammar rules can be used in almost any programming language. We will use the JavaScript [`grit-parser`] in order to show running examples, and to compare grammar rules with regular expressions. To do that we will need to introduce a few programming language details, but the grammar rules themselves are independent of the host programming language.
 
 [`grit-parser`]: https://github.com/pcanz/grammar-parser/
 
@@ -93,7 +93,7 @@ var date_match = date_peg.match("3/4/2019");
 
 write(date_match); // ===>
 ```
-The `grit` function corresponds to the `RegExp` object, it is a function that takes the grammar rules as input and returns a parser function. The source code for the `grit` grammar parser can be found at: <https://github.com/pcanz/grammar-parser/>
+The `grit` function corresponds to the `RegExp` object, it is a function that takes the grammar rules as input and returns a parser object with a `parse` function. The source code for the `grit` grammar parser can be found at: <https://github.com/pcanz/grammar-parser/>
 
 The date grammar rule is quite similar to the date regular expression rule, the big difference is that the grammar rule has a name (before the `=` symbol), and the rule uses white-space to separate the component parts (extra white-space is insignificant).
 ``` eg
@@ -140,9 +140,9 @@ write(date_match)
 ```
 In this example the `grit` function has been used as a tag funtion on a JavaScript template string. This is slightly easier to write and avoids the need to escape the `\` back-slash characters.
 
-This version matches exactly the same syntax as the previous examples, but the grammar rule names show the semantic intent for this grammar. The parser function has been given a short name `mdy` (month-day-year) to stand for the type of text it represents, but it could be given a longer name such as `date_parser`.
+This version matches exactly the same syntax as the previous examples, but the grammar rule names show the semantic intent for this grammar. The parser object has been given a short name `mdy` (month-day-year) to stand for the type of text it represents, but it could be given a longer name such as `date_parser`.
 
-The grammar rules are a text string, and the `grit` function returns a parser function. The result of applying the parser function to an input text string is, by default, an array of string values (a simple JSON data structure).
+The grammar rules are a text string, and the `grit` function returns a parser object. The result of applying the parser object's `parse` function to an input text string is, by default, an array of string values (a simple JSON data structure).
 
 The date grammar in this example has has been kept as simple as possible to illustrate how things work. In practice a more accurate date grammar could be used, for example it could require that the year has exactly four digits and the month and day have only one or two digits (see example 3.2).
 
