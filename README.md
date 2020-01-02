@@ -36,8 +36,6 @@ Take a copy of the file: `grit-parser.js`
 
 ##  Documentation
 
-Introduction: https://pcanz.github.io/grammar-parser/introduction.md.html
-
 Web-site: https://pcanz.github.io/grammar-parser/
 
 

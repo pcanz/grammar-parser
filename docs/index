@@ -26,7 +26,7 @@ Grammar rules make great specifications, and now you can use them directly in yo
 
 [Overview]: https://pcanz.github.io/grammar-parser/overview.md.html
 [Tutorial]: https://pcanz.github.io/grammar-parser/tutorial.md.html
-[CSV Study]: https://pcanz.github.io/grammar-parser/Grit-CVS-Study.md.html
+[CSV Study]: https://pcanz.github.io/grammar-parser/cvs.md.html
 [Refence Manual]: https://pcanz.github.io/grammar-parser/reference.md.html
 [JSON]: https://pcanz.github.io/grammar-parser/json.md.html
 [TOML]: https://pcanz.github.io/grammar-parser/toml.md.html
