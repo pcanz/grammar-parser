@@ -2,9 +2,6 @@
 
 Grammar rules make great specifications, and now you can use them directly in your programm code.
 
-
-##  Reading List
-
 * [Overview] to find out what it's all about.
 
 * [Tutorial] to learn a little more.
@@ -14,15 +11,19 @@ Grammar rules make great specifications, and now you can use them directly in yo
 * [Refence Manual] when you need more help.
 
 
+## Getting Started
+
+* [Playpen] to try things out.
+
+* [Project] to get the code.
+
+
 ## Examples
 
 * [JSON]
 * [TOML]
 
 
-## Grit Playpen
-
-* [Playpen] to try things out.
 
 [Overview]: https://pcanz.github.io/grammar-parser/overview.md.html
 [Tutorial]: https://pcanz.github.io/grammar-parser/tutorial.md.html
@@ -31,6 +32,7 @@ Grammar rules make great specifications, and now you can use them directly in yo
 [JSON]: https://pcanz.github.io/grammar-parser/json.md.html
 [TOML]: https://pcanz.github.io/grammar-parser/toml.md.html
 [Playpen]: https://pcanz.github.io/grammar-parser/dingus.md.html
+[Project]: https://github.com/pcanz/grammar-parser
 
 
 
