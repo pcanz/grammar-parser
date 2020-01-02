@@ -1,0 +1,47 @@
+#   Grit Grammar Parser
+
+Grammar rules make great specifications, and now you can use them directly in your programm code.
+
+
+##  Reading List
+
+* [Overview] to find out what it's all about.
+
+* [Tutorial] to learn a little more.
+
+* [CSV Study] for a practical example.
+
+* [Refence Manual] when you need more help.
+
+
+## Examples
+
+* [JSON]
+* [TOML]
+
+
+## Grit Playpen
+
+* [Playpen] to try things out.
+
+[Overview]: https://pcanz.github.io/grammar-parser/overview.md.html
+[Tutorial]: https://pcanz.github.io/grammar-parser/tutorial.md.html
+[CSV Study]: https://pcanz.github.io/grammar-parser/Grit-CVS-Study.md.html
+[Refence Manual]: https://pcanz.github.io/grammar-parser/reference.md.html
+[JSON]: https://pcanz.github.io/grammar-parser/json.md.html
+[TOML]: https://pcanz.github.io/grammar-parser/toml.md.html
+[Playpen]: https://pcanz.github.io/grammar-parser/dingus.md.html
+
+
+
+<style type="text/css">
+	body {
+		font-family: 'Helvetica Neue', Helvetica, Arial, serif;
+		font-size: 1em;
+		line-height: 1.5;
+		color: #505050;
+	}
+	code.language-eg { display:block; background:whitesmoke; margin:0pt 10pt;}
+</style>
+
+

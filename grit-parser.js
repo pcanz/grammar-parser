@@ -184,7 +184,8 @@ const grit_actions = { // semantic actions for parse tree nodes...
     },
 
     // regex   = &[[\\] (chs / par / misc)*
-    "regex": ([_, rs]) => ["^", rs.join('')],
+    "regex": ([_, rs]) => rs[0]==='^'? 
+                ["^", rs.slice(1).join('')] : ["^", rs.join('')],
 
     // par = [(] ([^()]* par?)* [)]
     "par": ([lp, ps, rp]) => { // par? => p, will be already done..
@@ -365,7 +366,10 @@ function parser (code, input, actions={}, options={}) {
                 maxPos = pos; 
                 maxRule = inRule;
             }
-            return mx[1]||mx[0]; // used to skip white-space prefix
+            // return mx[1]||mx[0]; // used to skip white-space prefix
+            if (mx.length === 1) return mx[0];
+            if (mx.length === 2) return mx[1];
+            return mx.slice(1);
 
         case '=': // ["=", name, idx]
             var idx = op[2];
@@ -418,27 +422,27 @@ function parser (code, input, actions={}, options={}) {
             return res;
 
         case '*': // ["*", op]
-            var start = pos;
-            var temp = run(op[1]);
-            if (temp === null) return [];
-            var res = [temp];
-            while (pos > start) {
-                start = pos;
-                temp = run(op[1]);
-                if (temp === null) break;
-                res.push(temp);
-            }
-            return res;
+        var start = pos;
+        var temp = run(op[1]);
+        if (temp === null) return [];
+        var res = [temp];
+        while (true) {
+            start = pos;
+            temp = run(op[1]);
+            if (temp === null || pos === start) break;
+            res.push(temp);
+        }
+        return res;
 
         case '+': // ["+", op]
             var start = pos;
             var temp = run(op[1]);
             if (temp === null) return null;
             var res = [temp];
-            while (pos > start) {
+            while (true) {
                 start = pos;
                 temp = run(op[1]);
-                if (temp === null) break;
+                if (temp === null || pos === start) break;
                 res.push(temp);
             }
             return res;

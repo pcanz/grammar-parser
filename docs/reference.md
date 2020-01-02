@@ -366,3 +366,20 @@ Here is the full grit grammar grammar:
 
 
 
+``` replace
+"   smart
+'   smart
+```
+
+<style type="text/css">
+	body {
+		font-family: 'Helvetica Neue', Helvetica, Arial, serif;
+		font-size: 1em;
+		line-height: 1.5;
+		color: #505050;
+	}
+	code.language-eg { display:block; background:whitesmoke; margin:0pt 10pt;}
+</style>
+
+
+

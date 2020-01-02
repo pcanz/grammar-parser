@@ -1,0 +1,1491 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta lang=en charset="UTF-8">
+<script>if (window.moko) alert("!!! moko global name conflict....");
+window.moko = {}
+</script>
+
+<script>
+// Grammar Parser -- an evolution of Grit.
+
+// See docs at: https://github.com/pcanz/grammar-parser
+
+/*	The MIT License (MIT)
+ *
+ *	Copyright (c) 2015,2016,2017,2018,2019 Peter Cashin
+ *
+ *	Permission is hereby granted, free of charge, to any person obtaining a copy
+ *	of this software and associated documentation files(the "Software"), to deal
+ *	in the Software without restriction, including without limitation the rights
+ *	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ *	copies of the Software, and to permit persons to whom the Software is
+ *	furnished to do so, subject to the following conditions:
+ *
+ *	The above copyright notice and this permission notice shall be included
+ *	in all copies or substantial portions of the Software.
+ *
+ *	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ *	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ *	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ *	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ *	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
+ *	FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ *  DEALINGS IN THE SOFTWARE.
+ */
+
+;(function() { // module name-space wrapper -- see the end of this file...
+
+/* -- grammar-rule grammar ---------------------------------------
+
+    grammar = rule+
+    rule    = name "=" expr ws act?
+
+    expr    = seq ("/" seq)*
+    seq     = (ws [&!]? term [*+?]?)*
+    term    = ref / quote / regex / group
+
+    name    = ws \w+
+    ref     = name !\s*=
+    group   = "(" expr ")"
+
+    quote   = '"' [^"]* '"' / "'" [^']* "'"
+    regex   = &[[\\^] (chs / par / misc)+
+    chs     = [\[] ([^\]\\]* ([\\][^])?)+ [\]]
+    par     = [(] ([^()]* par?)* [)]
+    misc    = [^[()\s]+
+
+    act     = ":" lines
+    lines   = line (\s* !\S+\s*= line)*
+    line    = [^\n\r]* 
+    ws      = \s*  
+*/
+
+// -- parser code for grit_rules --------------------------------------
+
+// The parser is a byte-code style interpreter, but encodes
+// instructions an array data structure with string values.
+
+/* parser instruction codes:
+
+    ["^", "regex"]      match regexp
+    ["=", rule]         call rule by name.
+    [",", a, b, c, ...] sequence of instruction codes, all to succeed.
+    ["/", a, b, c, ...] altrnatives, first to succeed.
+    ["+", x]            matches one or more x, or fails.
+    ["*", x]            matches any number of x, none matches "".
+    ["?", x]            optional match: x / ""
+    ["&", x]            lookahead: "" if x matches, else fails.
+    ["!", x]            negation: fails if x matches, else "".
+ 
+    The parser compiles rule names to rule indexes on the fly, and also
+    compiles regexp's on the fly (to keep the code simple, and portable).
+
+    The parser code can be exported as JSON.
+*/
+
+const grit_code = [
+    {   name: "grammar", // grammar = rule+
+        code: ["+",["=","rule"]] },
+
+    {   name: "rule", // rule = name "=" expr ws act?
+        code: [",",["=","name"],["^","\\s*="],["=","expr"],
+                        ["=", "ws"],["?",["=","act"]]] },
+
+    {   name: "expr", // expr = seq ("/" seq)*
+        code: [",",["=","seq"],["*",[",",["^","\\s*/"],["=","seq"]]]] },
+
+    {   // seq = (ws [&!]? term [*+?]?)*
+        name: "seq",
+        code: ["*",[",",["=","ws"],["^","[&!]?"],["=","term"],["^","[*+?]?"]]] },
+
+    {   name: "term", // term = ref / quote/ regex / group
+        code: ["/",["=","ref"],["=","quote"],["=","regex"],["=","group"]] },
+
+    {   name: "name", // name = ws \w+
+        code: [",",["^","[\\s]*"],["^","[\\w]+"]] },
+
+    {   name: "ref", // ref = name !\s*=
+        code: [",",["=","name"],["!",["^","[\\s]*="]]] },
+
+    {   name: "quote", // quote = '"' [^"]* '"' / "'" [^']* "'"
+        code: ["^","\\s*((?:'[^']*'|\"[^\"]*\")[\\w]*)"] },
+
+    {   name: "regex", // regex = &[[\\^] (chs / par / misc)+
+        code: [",",["&",["^","[[\\\\^]"]],["+",["/",["=","chs"],["=","par"],["=","misc"]]]] },
+
+    {   name: "chs", // [\[] ([^\]\\]* ([\\][^])?)+ [\]]
+        code: ["^","[[](?:[^\\]\\\\]*(?:[\\\\][^])?)+[\\]]"] },
+
+    {   name: "par", // par = [(] ([^()]* par?)* [)]
+        code: [",",["^","[(]"],["*",[",",["^","[^()]*"],["?",["=","par"]]]],["^","[)]"]] },
+
+    {   name: "misc", // [^[()\s]+
+        code: ["^","[^[()\\s]+"] },
+
+    {   name: "group", // group = "(" expr ")"
+        code: [",",["^","\\s*\\("],["=","expr"],["^","\\s*\\)"]] },
+
+    {   name: "act", // act = ":" lines
+        code: [",",["^","\\s*:"],["^","[^\\n\\r]*"], // line = [^\n\r]*
+                ["*",[",",["^","\\s*"],["!",["^","\\S+\\s*="]],
+                          ["^","[^\\n\\r]*"]]]] },
+
+    {   name: "ws", // ws = \s* 
+        code: ["^","\\s*"] }
+];
+
+resolve_code(grit_code); // maps names to indexes & compiles regexes
+
+// -- compile peg rules into parser instruction codes --------------------
+
+const grit_actions = { // semantic actions for parse tree nodes...
+
+    // grammar = rule+
+    "grammar": (rs) => rs,
+
+    // rule = name "=" expr ws act?
+    "rule": ([name, _, code, ws, action]) => {
+        return {name, code, action};
+    },
+
+    // expr = seq ("/" seq)*
+    "expr": ([seq, alts]) => {
+        if (alts.length === 0) {
+            return seq;
+        } else {
+            var seqs = alts.map(([_, seq]) => seq)
+            return ["/", seq, ...seqs];
+        }
+    },
+
+    // seq = (ws [&!]? term [*+?]?)*
+    "seq": (xs) => {
+        var ts = xs.map(([ws, pred, term, rep]) => {
+            if (rep) { term = [rep, term]; }
+            if (pred) { term = [pred, term];}
+            return term;
+        })
+        if (ts.length === 1) return ts[0];
+        return [",", ...ts];
+    },
+
+    // term = ref / match / group
+    "term": (x) => x,
+
+    // name = ws \w+
+    "name": ([_, name]) => name,
+
+    // ref = name !\s*=
+    "ref":  ([name, _]) => ["=", name, null],
+
+    // group = "(" expr ")"
+    "group": ([_, expr]) => expr,
+
+    // quote = '"' [^"]* '"' / "'" [^']* "'"
+    "quote": (str) => { // quote => regex: \s*("...")\s*
+        if (str.length === 2) { // empty quotes..
+            return (str[0] === "'")? ["^","\uFFFF?"] : ["^","\\s*(\uFFFF?)"];
+        }
+        qt = str.slice(1,-1);
+        if (str[0] === "'") return ["^",esc_regex(qt)];
+        return ["^","\\s*("+esc_regex(qt)+")\\s*"];
+    },
+
+    // regex   = &[[\\] (chs / par / misc)*
+    "regex": ([_, rs]) => rs[0]==='^'? 
+                ["^", rs.slice(1).join('')] : ["^", rs.join('')],
+
+    // par = [(] ([^()]* par?)* [)]
+    "par": ([lp, ps, rp]) => { // par? => p, will be already done..
+        var xps = ps.map(([x, p]) => p? x+p : x);
+        return lp + xps.join('') + rp; 
+    },
+
+    // act = ":" lines
+    "act": ([_, line, lines]) => {
+        return string([line, lines]);
+    },
+
+    // ws = \s*
+    "ws": (s) => s
+
+} // grit_actions
+
+function esc_regex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function rules_map(code) {
+    return code.reduce((rm, rule, idx) => {
+        rm[rule.name] = idx; return rm; }, {});
+}
+
+function resolve_code(code) {
+    var name_idx = rules_map(code);
+
+    function resolve (op) {
+        if (!Array.isArray(op)) return op;
+        if (op[0] === "^") {
+            op[2] = op[2] || new RegExp(op[1],"uy"); // unicode sticky flags
+            return op;
+        }
+        if (op[0] === "=") {
+            op[2] = name_idx[op[1]];
+            if (!op[2] && op[2]!==0) {
+                throw new Error("*** missing rule '"+op[1]+"' ... ")
+            }
+            return op;
+        }
+        return op.map((x) => resolve(x));
+    }
+    var coded = code.map((rule) => {
+        return resolve(rule.code);
+    });
+
+    return code;
+}
+
+
+// -- built-in semantic actions ---------------------------------------------
+
+
+const std_actions = {
+
+    xfy: (result) => { // a (op b)* => [op,x,y]
+        function xfy(x, ys) {
+            if (ys.length === 0) return x;
+            var [op, y] = ys[0];
+            return [op, x, xfy(y, ys.slice(1))]
+        }
+        var [x, ys] = result;
+        return xfy(x, ys);
+    },
+ 
+    yfx: (result) => { // a (op b)* => [op,y,x]
+        var [a, bs] = result;
+        return bs.reduce((y, [op, b]) => [op, y, b], a)
+    },
+
+    xfx: (result) => { // a (op b)* => [a,op,b,op,c,...]
+        var [a, bs] = result;
+        return bs.reduce((y, b) => y.concat(b), [a])
+    },
+
+    yfy: (result) => { // a (_ b)* => [a,b,c,...]
+        var [a, bs] = result;
+        return bs.reduce((y, [_, b]) => y.concat(b), [a]);
+    },
+
+    flatten: (xs) => flatten(xs),
+
+    string: (xs) => string(xs),
+
+    number: (xs) => number(xs),
+
+    x: (result) => result,
+    n: (result) => Number(result),
+    _: (result) => ""
+
+}
+
+function flatten(xs) {
+    return Array.isArray(xs)?
+        xs.reduce((y,x) => y.concat(flatten(x)),[]) : xs;
+}
+
+function string(xs) {
+    return Array.isArray(xs)? flatten(xs).join('') : xs;
+}
+
+function number(xs) {
+    return Number(string(xs));
+}
+
+// -- parser -- string-code interpreter ------------------------------------
+
+function parser (code, input, actions={}, options={}) {
+    var pos = 0;
+    var inRule = "start"; // current rule trace 
+    var ruleStack = [];
+    var maxPos = 0; // high water mark
+    var maxRule= ""; // inRule at maxPos
+    var runOps = 0;
+    var maxOps = 10000; // run away recursion check
+
+    if (!code) {
+        return report("missing grammar rule code...");
+    }
+
+    var start_name = code[0].name;
+    var start = ["=", start_name, 0];
+
+    if (typeof input !== "string") {
+        try {
+            input = String.raw(input);
+        } catch(err) {
+            input = '';
+            return report("input is not a string...");
+        }
+    }
+
+    if (typeof actions === 'function') {
+        actions = { "?": actions } // catch all
+    }
+
+    if (options.trace) console.log("trace", start_name)
+
+    var result = run(start); // run the parser engine...
+
+    if (result === null) {
+        return report("failed");
+    }
+    if (pos < input.length && !input.slice(pos).match(/^\s+$/)) {
+        if (options.replay) replay();
+        return report("fell short");
+    }
+    return result;
+
+    // -- code engine -------------------------------------------
+
+    function run(op) {
+
+        if (runOps += 1 > maxOps) {
+            return report("run away recursion...");
+        }
+
+        switch (op[0]) {
+
+        case '^': // ["^", src, regex]
+            var regex = op[2]; 
+            regex.lastIndex = pos; // using regex.y sticky flag
+            var mx = regex.exec(input);
+            var trace = options.trace;
+            if (trace) {
+                if (typeof trace !== "string" || trace === inRule) {
+                    var span = pos;
+                    span += mx? ".."+(pos+mx[0].length) : ""
+                    var match = mx? "=>"+mx[0] : "!";
+                    console.log(span,inRule,regex,match);
+                }
+            }
+            if (!mx) return null;
+            pos += mx[0].length;
+            if (pos > maxPos) { 
+                maxPos = pos; 
+                maxRule = inRule;
+            }
+            // return mx[1]||mx[0]; // used to skip white-space prefix
+            if (mx.length === 1) return mx[0];
+            if (mx.length === 2) return mx[1];
+            return mx.slice(1);
+
+        case '=': // ["=", name, idx]
+            var idx = op[2];
+            var rule = code[idx];
+            if (!rule) { // bad grammar ...
+                return report("missing rule "+idx+": '"+op[1]+"' ...");
+            }
+            ruleStack.push(inRule)
+            inRule = op[1];
+            var start = pos;
+            var result = run(rule.code);
+            inRule = ruleStack.pop();
+            if (result === null) {
+                pos = start;
+                return null;
+            }
+            var {name, action} = rule;
+            var val = run_action(result, {name, action, pos, input, posit});
+            if (val !== null) return val;
+            pos = start; // fail
+            return null;
+
+        case ',': // [",", ..., seq, ... ]
+            var start = pos;
+            var res = [];
+            var i = 1;
+                while (i < op.length) {
+                var temp = run(op[i]);
+                if (temp === null) {
+                    pos = start;
+                    return null;
+                }
+                res.push(temp);
+                i += 1;
+            }
+            return res;
+
+        case '/': // ["/", ..., alt, ... ]
+            var start = pos;
+            var res = null; // fail if no alt
+            var j = 1;
+            while (j < op.length) {
+                res = run(op[j]);
+                if (res !== null && pos > start) {
+                    return res;
+                }
+                pos = start;
+                j += 1;
+            }
+            return res;
+
+        case '*': // ["*", op]
+        var start = pos;
+        var temp = run(op[1]);
+        if (temp === null) return [];
+        var res = [temp];
+        while (true) {
+            start = pos;
+            temp = run(op[1]);
+            if (temp === null || pos === start) break;
+            res.push(temp);
+        }
+        return res;
+
+        case '+': // ["+", op]
+            var start = pos;
+            var temp = run(op[1]);
+            if (temp === null) return null;
+            var res = [temp];
+            while (true) {
+                start = pos;
+                temp = run(op[1]);
+                if (temp === null || pos === start) break;
+                res.push(temp);
+            }
+            return res;
+
+        case '?': // ["?", op]
+            var res = run(op[1])
+            if (res === null) return "";
+            return res;
+
+        case '!': // ["!", op]
+            var start = pos
+            var res = run(op[1])
+            pos = start
+            if (res === null) return "";
+            return null;
+
+        case '&': // ["&", op]
+            var start = pos
+            var res = run(op[1])
+            pos = start
+            if (res !== null) return "";
+            return null;
+
+        default: // should never happen...
+		    throw new Error("*** Undefined parse code op: "+JSON.stringify(op));
+        }
+    } // run
+
+    function report(msg) {
+        var at = pos + (maxPos>pos? ".."+maxPos : "") + " of " + input.length;
+        var pre = pos<16? input.slice(0,pos) : "..."+input.slice(pos-13,pos);
+        var show = pre + input.slice(pos,pos+40);
+        show = show.replace(/[\x00-\x1f]/g,"¬")
+        if (input.length > pos+40) show += "..."
+        var cursor = "";
+        for (var i=0; i < pre.length; i+=1) cursor += " ";
+        cursor += "^";
+        var max = maxPos-pos>40? 42 : maxPos;
+        for (var i=pos+1; i < max; i+=1) cursor += " ";
+        cursor += "^";
+        var report = "*** grammar '"+start_name+"' parse "+msg+
+                    " after: '"+maxRule+"' at: "+at+"\n"+
+                        show+"\n"+cursor;
+        if (!options || (!options.silent && !options.console)) {
+            throw new Error(report);
+        } else if (options.console && !options.silent) {
+            console.log(report);
+        } else { // silent reporting...
+            options.report = report;
+        }
+        return null;
+    }
+
+    function replay() {
+        try {
+            parser(code, input, actions, {trace:true});
+        } catch(err) {
+            // console.log(err);
+        }
+    }
+
+    function posit(n) {
+        console.log("posit", pos, n);
+        pos = n;
+    }
+
+    function run_action(result, parse) {
+        var fn = null;
+        var {name, action} = parse; // {name, action, pos, input, posit}
+        if (action) {
+            var ax = action.match(/^\s*(\S+)/);
+            act = ax? ax[1] : "";
+            fn = actions[act] || std_actions[act];
+            if (!fn) { // synthetic action: _x_ etc..
+                if (act.match(/^[_x]+$/) && Array.isArray(result)) {
+                    var res = [];
+                    result.forEach((x, i) => {
+                        var k = act[i];
+                        if (k === "x") res.push(x);
+                    });
+                    if (res.length === 1) return res[0];
+                    return res;
+                }            
+            }
+        } // action
+        fn = fn || actions[name] || actions["?"];
+        if (fn) {
+            try {
+                return fn(result, parse);
+            } catch(err) {
+                report("Bad action for '"+name+"':\n"+err);
+            }
+        }
+        return result // [name, result] // default result..
+    }
+
+
+} // parser
+
+
+// -- grammar_parser --------------------------------------------------------
+
+function grammar_parser (grammar, actions) {
+
+    let code = parser(grit_code, grammar, grit_actions)
+
+    if (!code) return null;
+    
+    resolve_code(code);
+
+    function parse(input, options) {
+        return parser(code, input, this.actions, options);
+    };
+
+    function match(input, options) {
+        try {
+            var result = this.parse(input, options);
+        } catch(err) {
+            this.err = err;
+            return null;
+        }
+        return result;
+    }
+
+    return {parse, match, grammar, actions, code};
+}
+
+// module.exports = grammar_parser;
+// expose grammar_parser ----------------------------------------------
+
+if (typeof module !== 'undefined' && typeof exports === 'object') {
+    module.exports = grammar_parser;
+} else if (typeof define === 'function' && define.amd) {
+    define(function() { return grammar_parser; });
+} else {
+    this.grammar_parser = grammar_parser;
+}
+
+}).call(function() {
+return this || (typeof window !== 'undefined' ? window : global);
+}()); // outer funtion name-space wrapper
+
+;
+</script> 
+<style>
+td.demo-1, .demo-eg { margin-right:10pt; background:whitesmoke;
+                       padding: 0pt 10pt; }
+td.demo-2 { padding: 0pt 10pt; }
+</style>
+<script type="text/javascript">
+    var moko = window.moko || (window.moko = {});
+    moko.sandbox = {};
+    moko.sandbox.write = (txt) => res += JSON.stringify(txt)
+    var sandbox = moko.sandbox
+    sandbox.RESET = (i) => {
+	    var src = sandbox.textarea_src(i)
+        var example = sandbox.example(i, 0)
+	    src.value = example.value
+	    sandbox.RUN(i);
+    }
+    sandbox.RUN = (i) => {
+        var src = sandbox.textarea_src(i)
+        var dst = sandbox.textarea_dst(i)
+        var res = "";
+        try {
+            var verbs = {
+                // grit: window.Grit,
+                grammar_parser: window.grammar_parser, // new grit,
+                grit: window.grammar_parser, // grit 3.x
+                write: (...args) => {
+                    res += args.map((arg)=>
+                        JSON.stringify(arg)).join(' ')+"\r\n\r\n";
+                },
+                print: (...args) => {
+                    res += args.map((arg)=>
+                        JSON.stringify(arg,null,2)).join(' ')+"\r\n\r\n";
+                }    
+            }
+            var keys = Object.keys(verbs);
+            var vals = keys.map((k)=> verbs[k])
+            var fn = new Function(...keys, src.value)
+            fn(...vals);
+        } catch(err) {
+            res = err
+        }
+        dst.value = res;
+    }
+    sandbox.SELECT = (i) => {
+        var x = document.getElementById("sandbox-select-"+i).value;
+        var example = sandbox.example(i, x-1)
+        var src = sandbox.textarea_src(i)
+        src.value = example.value
+        sandbox.RUN(i);
+    }
+    sandbox.textarea_src = (i) => document.getElementById('sandbox-src-'+i);
+    sandbox.textarea_dst = (i) => document.getElementById('sandbox-dst-'+i);
+    sandbox.example = (i, n) => document.getElementById('sandbox-eg-'+i+'-'+n);
+</script>
+<style>
+textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
+</style>
+
+</head>
+<body>
+<h1><span id="sect-Grit CSV Study"></span>Grit CSV Study</h1>
+<p>CSV (Comma Separted Variable) is a text file format that is commonly used to transfer spread-sheets and data-base tables.</p>
+<p>This note uses the Grit parser to specify and automate CSV grammar rules. A basic knowledge of Grit grammar rules is assumed.</p>
+<p>The <a href="https://en.wikipedia.org/wiki/Comma-separated_values">CSV format</a> is simple enough, but there are lots of variations on a theme. Let's start with the <a href="https://tools.ietf.org/html/rfc4180">IETF RFC 4180</a> grammar rules. This is a defacto standard (it is not a formal standard, it is information for the Internet community).</p>
+<p>Later we will talk about how to modify the grammar to accommodate different requirements. But the first step is to automate the RFC 4180 grammar.</p>
+<p>Here it is, a cut-and-paste copy, directly from the specification:</p>
+<pre class='demo-eg'>	RFC 4180  Common Format and MIME Type for CSV Files  October 2005
+
+	file = [header CRLF] record *(CRLF record) [CRLF]
+	header = name *(COMMA name)
+	record = field *(COMMA field)
+	name = field
+	field = (escaped / non-escaped)
+	escaped = DQUOTE *(TEXTDATA / COMMA / CR / LF / 2DQUOTE) DQUOTE
+	non-escaped = *TEXTDATA
+	COMMA = %x2C
+	CR = %x0D         ;as per section 6.1 of RFC 2234 [2]
+	DQUOTE =  %x22    ;as per section 6.1 of RFC 2234 [2]
+	LF = %x0A         ;as per section 6.1 of RFC 2234 [2]
+	CRLF = CR LF      ;as per section 6.1 of RFC 2234 [2]
+	TEXTDATA =  %x20-21 / %x23-2B / %x2D-7E
+</pre>
+<p>These rules use the IETF ABNF grammar format, which is a little different from Grit grammar rules. The main thing we need to do is change the ABNF prefix format into the Grit postfix format, and change the ABNF literal notations into regular expression components:</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(1)' >Example 1</button>
+    <button onClick='sandbox.RUN(1)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-1' style="width:49%" rows=23>const rfc = grit`
+  file        = (header CRLF)? 
+                record (CRLF record)* CRLF?
+  header      = name (COMMA name)*
+  record      = field (COMMA field)*
+  name        = field
+  field       = escaped / non_escaped
+  escaped     = DQUOTE (TEXTDATA / COMMA /
+                        CR / LF / DQ2)* DQUOTE
+  non_escaped = TEXTDATA*
+  COMMA       = [\x2C]
+  DQUOTE      = [\x22]
+  DQ2         = [\x22]{2}
+  CR          = [\x0D]
+  LF          = [\x0A]
+  CRLF        = CR LF
+  TEXTDATA    = [\x20-\x21\x23-\x2B\x2D-\x7E]
+`;
+
+test = `a,b,c\r\nd,e,f`;
+
+write(rfc.parse(test));
+</textarea>
+  <textarea id='sandbox-dst-1' style="width:49%" rows=23></textarea>
+  
+      <textarea id='sandbox-eg-1-0' hidden>const rfc = grit`
+  file        = (header CRLF)? 
+                record (CRLF record)* CRLF?
+  header      = name (COMMA name)*
+  record      = field (COMMA field)*
+  name        = field
+  field       = escaped / non_escaped
+  escaped     = DQUOTE (TEXTDATA / COMMA /
+                        CR / LF / DQ2)* DQUOTE
+  non_escaped = TEXTDATA*
+  COMMA       = [\x2C]
+  DQUOTE      = [\x22]
+  DQ2         = [\x22]{2}
+  CR          = [\x0D]
+  LF          = [\x0A]
+  CRLF        = CR LF
+  TEXTDATA    = [\x20-\x21\x23-\x2B\x2D-\x7E]
+`;
+
+test = `a,b,c\r\nd,e,f`;
+
+write(rfc.parse(test));
+</textarea>
+  <script>sandbox.RUN(1)</script><br>
+
+<p>That's it, a very literal transliteration of the RFC 4180 grammar specification, but it can now be run as a parser.</p>
+<p>The parse tree result for our little test input is rather messy, but we will clean that up later. Before that it is best to work on the grammar rules, and check that they match input test strings as expected.</p>
+<p>We can simplify the grammar significantly by taking more advantage of Grit notations:</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(2)' >Example 2</button>
+    <button onClick='sandbox.RUN(2)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-2' style="width:49%" rows=16>const rfc = grit`
+  file      = (header CRLF)?
+               record (CRLF record)* CRLF?
+  header    = name (',' name)*
+  record    = field (',' field)*
+  name      = field
+  field     = escaped / TEXTDATA*
+  escaped   = ('"' [^"]* '"')+
+  CRLF      = \r\n
+  TEXTDATA  = [\x20-\x21\x23-\x2B\x2D-\x7E]
+`;
+
+test = `a,b,c\r\nd,e,f`;
+
+write(rfc.parse(test));
+</textarea>
+  <textarea id='sandbox-dst-2' style="width:49%" rows=16></textarea>
+  
+      <textarea id='sandbox-eg-2-0' hidden>const rfc = grit`
+  file      = (header CRLF)?
+               record (CRLF record)* CRLF?
+  header    = name (',' name)*
+  record    = field (',' field)*
+  name      = field
+  field     = escaped / TEXTDATA*
+  escaped   = ('"' [^"]* '"')+
+  CRLF      = \r\n
+  TEXTDATA  = [\x20-\x21\x23-\x2B\x2D-\x7E]
+`;
+
+test = `a,b,c\r\nd,e,f`;
+
+write(rfc.parse(test));
+</textarea>
+  <script>sandbox.RUN(2)</script><br>
+
+<p>Quoted characters are easier to read than names that are defined as numeric character codes. Although a standards body may prefer to spell out the numeric character codes explicitly.</p>
+<p>The <code>escaped</code> rule has been simplified to eliminate the need to mention doubling double-quotes (the <code>DQ2</code> which is used to escape quote marks). The trick is that the overall text for one big quoted string that contains doubled quote escapes is exactly the same as the total text for a concatenated sequence of separate quoted strings.</p>
+<p>The RFC specification allows the option for the first record to be a header line. But the syntax is identical, there is no difference between the <code>header</code> rule and the <code>record</code> rule.</p>
+<p>It seems best to simply eliminate the header option from the grammar rules. The grammar has nothing to say about how the application may decide if the first record is a header record or not.</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(3)' >Example 3</button>
+    <button onClick='sandbox.RUN(3)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-3' style="width:49%" rows=15>const rfc = grit`
+  file      = records CRLF?
+  records   = record (CRLF record)*
+  record    = field (',' field)*
+  name      = field
+  field     = escaped / TEXTDATA*
+  escaped   = ('"' [^"]* '"')+
+  CRLF      = \r\n
+  TEXTDATA  = [\x20-\x21\x23-\x2B\x2D-\x7E]
+`;
+
+test = `a,b,c\r\nd,e,f`;
+
+write(rfc.parse(test));
+</textarea>
+  <textarea id='sandbox-dst-3' style="width:49%" rows=15></textarea>
+  
+      <textarea id='sandbox-eg-3-0' hidden>const rfc = grit`
+  file      = records CRLF?
+  records   = record (CRLF record)*
+  record    = field (',' field)*
+  name      = field
+  field     = escaped / TEXTDATA*
+  escaped   = ('"' [^"]* '"')+
+  CRLF      = \r\n
+  TEXTDATA  = [\x20-\x21\x23-\x2B\x2D-\x7E]
+`;
+
+test = `a,b,c\r\nd,e,f`;
+
+write(rfc.parse(test));
+</textarea>
+  <script>sandbox.RUN(3)</script><br>
+
+<p>RFC 4180 is very restrictive, it requires a line break to use the Internet standard and will not accept the common Unix line break convention. It also restricts the record data to ASCII characters.</p>
+<h2><span id="sect-Parser"></span>Parser</h2>
+<p>A practical parser should be more permissive than the strict RFC 4180 specification. This next grammar will accept the RFC 4180 format as a subset, but allows Unicode characters, and accepts any of the common line break conventions:</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(4)' >Example 4</button>
+    <button onClick='sandbox.RUN(4)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-4' style="width:49%" rows=17>const csv = grit`
+  file    = eol record+
+  record  = row eol
+  row     = (field ','?)+
+  field   = esc / txt
+  esc     = ('"' [^"]* '"')+
+  txt     = [^,\n\r]*
+  eol     = [\n\r]*
+`;
+
+test = `
+a,b,c,
+d,"e,f""g",h
+`;
+
+write(csv.parse(test));
+</textarea>
+  <textarea id='sandbox-dst-4' style="width:49%" rows=17></textarea>
+  
+      <textarea id='sandbox-eg-4-0' hidden>const csv = grit`
+  file    = eol record+
+  record  = row eol
+  row     = (field ','?)+
+  field   = esc / txt
+  esc     = ('"' [^"]* '"')+
+  txt     = [^,\n\r]*
+  eol     = [\n\r]*
+`;
+
+test = `
+a,b,c,
+d,"e,f""g",h
+`;
+
+write(csv.parse(test));
+</textarea>
+  <script>sandbox.RUN(4)</script><br>
+
+<p>The <code>eol</code> rule matches any of the common line break conventions, and it will also skip over any number of empty lines. This makes the parser robust in the face of human editors who may edit a CSV and inadverently add some unnecessary empty lines.</p>
+<p>The <code>eol</code> will also match zero line break characters, so leading and trailing line breaks will be accepted, but they are not required (they are not allowed in RFC 4180).</p>
+<p>The <code>record</code> rule has been simplified and it makes a trailing comma at the end of a record optional. If there is a trailing comma then an extra empty field will be matched at the end of the reocord.</p>
+<p>It may not be so obvious, but a <code>record</code> rule will also accept a comma at the start of a record, because the first <code>field</code> can be empty.</p>
+<h2><span id="sect-The Parse Tree"></span>The Parse Tree</h2>
+<p>Ideally we want the parse tree result to be a simple list (array) of records, each of which contains a list (array) of string values. This is a good structure for a formal AST (Abstract Syntax Tree) to represent tablular data.</p>
+<p>You may know that your application wants some other format, such as an HTML or XML, but that is best ignored for now. At this point it is enough to focus on the syntax of the CSV data, and generating a nice clean array or records. Other translations can be added later.</p>
+<p>The <code>file</code> and <code>record</code> rules are easy to clean up, an action function can simply ignore the <code>eol</code> elements.</p>
+<p>The <code>row</code> rule will match a sequence of <code>field</code> and comma vaules, but we only want the field value. The <code>row</code> action function deletes the commas.</p>
+<p>The <code>escaped</code> rule matches a full quoted field. The outer quotes not part of the field, but any internal doubled quotes represent a quote character. An action function can sort this out by simply taking the text between each pair of quote marks and joining these texts together with a quote character.</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(5)' >Example 5</button>
+    <button onClick='sandbox.RUN(5)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-5' style="width:49%" rows=23>const csv = grit`
+  file    = eol record+
+  record  = row eol
+  row     = (field ','?)+
+  field   = esc / txt
+  esc     = ('"' [^"]* '"')+
+  txt     = [^,\n\r]*
+  eol     = [\n\r]*
+`;
+csv.actions = {
+  file: ([_,records]) => records,
+  record: ([row,_]) => row,
+  row: (fs) => fs.map(([f,_]) => f),
+  esc: (es) => es.map(([_,e])=>e).join('"')
+};
+
+test = `
+a,b,c,
+d,"e,f""g",h
+`;
+
+write(csv.parse(test));
+</textarea>
+  <textarea id='sandbox-dst-5' style="width:49%" rows=23></textarea>
+  
+      <textarea id='sandbox-eg-5-0' hidden>const csv = grit`
+  file    = eol record+
+  record  = row eol
+  row     = (field ','?)+
+  field   = esc / txt
+  esc     = ('"' [^"]* '"')+
+  txt     = [^,\n\r]*
+  eol     = [\n\r]*
+`;
+csv.actions = {
+  file: ([_,records]) => records,
+  record: ([row,_]) => row,
+  row: (fs) => fs.map(([f,_]) => f),
+  esc: (es) => es.map(([_,e])=>e).join('"')
+};
+
+test = `
+a,b,c,
+d,"e,f""g",h
+`;
+
+write(csv.parse(test));
+</textarea>
+  <script>sandbox.RUN(5)</script><br>
+
+<p>Great, that's exactly what we wanted to see. A nice simple array of records containing string values.  The test case shows that an empty last field is matched, and the escaped quotes are working.</p>
+<h2><span id="sect-CSV Variants"></span>CSV Variants</h2>
+<p>CSV files do not necessarily use a comma as the field delimeter (despite the CSV name). Sometimes they are called DSV (Delimiter Separated Value) files, or if a tab delimiter is used then they may be called TSV files. A semi-colon delimiter is a very common variant, and they are usually called CSV files.</p>
+<p>For example, MS Excel CSV files will use a semicolon instead of a comma if the locale is a country where numbers have a comma as the decimal point separator.</p>
+<p>CSV variants do not all use exactly the same quoted field syntax as RFC 4180. Apple Numbers CSV files quote any fields that contain delimiter characters, but quote marks inside a quoted field are not doubled.</p>
+<p>Other variants may not use quotes at all, instead they may use a back-slash to escape delimiter characters.</p>
+<p>We can not cover all the possible CSV variants, but we can extend our grammar to cover many of the common variants.</p>
+<h3><span id="sect-Field Delimiters"></span>Field Delimiters</h3>
+<p>To make it easier to change the delimiter we will revise the grammar so that the delimiter character appears only once in the grammar, in the <code>txt</code> rule. The <code>row</code> rule can accept any character as a field delimiter, other than an end of line character.</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(6)' >Example 6</button>
+    <button onClick='sandbox.RUN(6)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-6' style="width:49%" rows=23>const csv = grit`
+  file    = eol record+
+  record  = row eol
+  row     = (field [^\n\r]?)+
+  field   = esc / txt
+  esc     = ('"' [^"]* '"')+
+  eol     = [\n\r]*
+  txt     = [^,\n\r]*
+`;
+csv.actions = {
+  file: ([_,records]) => records,
+  record: ([row,_]) => row,
+  row: (fs) => fs.map(([f,_]) => f),
+  esc: (es) => es.map(([_,e])=>e).join('"')
+};
+
+test = `
+a,b,c,
+d,"e,f""g",h
+`;
+
+write(csv.parse(test));
+</textarea>
+  <textarea id='sandbox-dst-6' style="width:49%" rows=23></textarea>
+  
+      <textarea id='sandbox-eg-6-0' hidden>const csv = grit`
+  file    = eol record+
+  record  = row eol
+  row     = (field [^\n\r]?)+
+  field   = esc / txt
+  esc     = ('"' [^"]* '"')+
+  eol     = [\n\r]*
+  txt     = [^,\n\r]*
+`;
+csv.actions = {
+  file: ([_,records]) => records,
+  record: ([row,_]) => row,
+  row: (fs) => fs.map(([f,_]) => f),
+  esc: (es) => es.map(([_,e])=>e).join('"')
+};
+
+test = `
+a,b,c,
+d,"e,f""g",h
+`;
+
+write(csv.parse(test));
+</textarea>
+  <script>sandbox.RUN(6)</script><br>
+
+<p>This grammar can be easily edited to change the comma delimeter to any other character. Only the last <code>txt</code> rule needs to be edited. If the delimeter needs to be assigned dynamically then the Grit grammar rules can be modified as a string value before the string is given to the <code>grit</code> function.</p>
+<p>An application may be able to discover the required delimiter character by examination of the CSV input file, or the delimiter may be specified as an external parameter.</p>
+<h3><span id="sect-Escapes"></span>Escapes</h3>
+<p>The grammar can be modified to accomodate the Apple CSV variant where quotes inside quoted fields are not doubled. It also continues to accept the RFC 4180 standard doubled quotes.</p>
+<p>This can be done because the final quote mark of an escaped field must be immediately followed by either a comma or a line end. A quote character inside a field value can therefore be accepted if it is followed by any character other than a (second) quote, a field delimeter, or a line break.</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(7)' >Example 7</button>
+    <button onClick='sandbox.RUN(7)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-7' style="width:49%" rows=30>const csv = grit`
+  file    = eol record+
+  record  = row eol
+  row     = (field [^\n\r]?)+
+  field   = esc / text
+  esc     = ('"' chs* '"')+
+  chs     = [^"]* skip?
+  skip    = '"' !'"' txt
+  eol     = [\n\r]*
+  text    = txt*
+  txt     = [^,\n\r]
+`;
+csv.actions = {
+  file: ([_,records]) => records,
+  record: ([row,_]) => row,
+  row: (fs) => fs.map(([f,_]) => f),
+  esc: (es) => es.map(([_,chs])=>
+                chs.join('')).join('"'),
+  chs: (cs) => cs.join(''),
+  skip: ([q, _, x]) => q+x,
+  text: (ts) => ts.join('')
+};
+
+test = `
+a,b,c,
+d,"e,f"g",h
+`;
+
+write(csv.parse(test));
+</textarea>
+  <textarea id='sandbox-dst-7' style="width:49%" rows=30></textarea>
+  
+      <textarea id='sandbox-eg-7-0' hidden>const csv = grit`
+  file    = eol record+
+  record  = row eol
+  row     = (field [^\n\r]?)+
+  field   = esc / text
+  esc     = ('"' chs* '"')+
+  chs     = [^"]* skip?
+  skip    = '"' !'"' txt
+  eol     = [\n\r]*
+  text    = txt*
+  txt     = [^,\n\r]
+`;
+csv.actions = {
+  file: ([_,records]) => records,
+  record: ([row,_]) => row,
+  row: (fs) => fs.map(([f,_]) => f),
+  esc: (es) => es.map(([_,chs])=>
+                chs.join('')).join('"'),
+  chs: (cs) => cs.join(''),
+  skip: ([q, _, x]) => q+x,
+  text: (ts) => ts.join('')
+};
+
+test = `
+a,b,c,
+d,"e,f"g",h
+`;
+
+write(csv.parse(test));
+</textarea>
+  <script>sandbox.RUN(7)</script><br>
+
+<p>This parser can have the comma in the <code>txt</code> rule changed to any other delimeter, and it can parse most of the common CSV formats exported from speread-sheets and data-base applications.</p>
+<p>We can extend this grammar to also accept back-slash escaped characters:</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(8)' >Example 8</button>
+    <button onClick='sandbox.RUN(8)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-8' style="width:49%" rows=32>const csv = grit`
+  file    = eol record+
+  record  = row eol
+  row     = (field [^\n\r]?)+
+  field   = esc / text
+  esc     = ('"' chs* '"')+
+  chs     = [^"]* skip?
+  skip    = '"' !'"' txt
+  eol     = [\n\r]*
+  text    = (bs / txt)*
+  bs      = [\\] [^]
+  txt     = [^,\\\n\r]
+`;
+csv.actions = {
+  file: ([_,records]) => records,
+  record: ([row,_]) => row,
+  row: (fs) => fs.map(([f,_]) => f),
+  esc: (es) => es.map(([_,chs])=>
+                chs.join('')).join('"'),
+  chs: (cs) => cs.join(''),
+  skip: ([q, _, x]) => q+x,
+  text: (ts) => ts.join(''),
+  bs: ([_, x]) => x
+};
+
+test = String.raw`
+a,b,c,
+d,e\,f"g,h
+`;
+
+write(csv.parse(test));
+</textarea>
+  <textarea id='sandbox-dst-8' style="width:49%" rows=32></textarea>
+  
+      <textarea id='sandbox-eg-8-0' hidden>const csv = grit`
+  file    = eol record+
+  record  = row eol
+  row     = (field [^\n\r]?)+
+  field   = esc / text
+  esc     = ('"' chs* '"')+
+  chs     = [^"]* skip?
+  skip    = '"' !'"' txt
+  eol     = [\n\r]*
+  text    = (bs / txt)*
+  bs      = [\\] [^]
+  txt     = [^,\\\n\r]
+`;
+csv.actions = {
+  file: ([_,records]) => records,
+  record: ([row,_]) => row,
+  row: (fs) => fs.map(([f,_]) => f),
+  esc: (es) => es.map(([_,chs])=>
+                chs.join('')).join('"'),
+  chs: (cs) => cs.join(''),
+  skip: ([q, _, x]) => q+x,
+  text: (ts) => ts.join(''),
+  bs: ([_, x]) => x
+};
+
+test = String.raw`
+a,b,c,
+d,e\,f"g,h
+`;
+
+write(csv.parse(test));
+</textarea>
+  <script>sandbox.RUN(8)</script><br>
+
+<p>Only the <code>txt</code> rule needs to be edited to specify the feild delimiter and to determine if back-slash escapes are to be used (if the <code>txt</code> does not exclude back-slash characters then they will be accepted as normal characters).</p>
+<p>If this back-slash escape option is used then it will be applied to any character following a back-slach, and two back-slash characters are therefore needed for the back-slash itself.</p>
+<p>To demonstrate, the next example starts with a <code>csv-rules</code> grammar that is defined for the RFC 4180 standard, extended to accept single or doubled quote marks inside quoted fields.</p>
+<p>A <code>dsv_rules</code> grammar is derived from the <code>csv_rules</code> by replacing the comma delimiter with a <code>|</code> character, and allowing back-slash escapes.</p>
+<p>The <code>dsv_rules</code> grammar is then applied to an example of the table format used in (extended) Markdown documents where:</p>
+<ol>
+<li>A bar &quot;|&quot; is used as the field separator (instead of a comma).</li>
+<li>Optional bar &quot;|&quot;s are allowed at the beginning and end of a row.</li>
+<li>A &quot;|&quot; is escaped as &quot;\|&quot; (instead of quoting the field).</li>
+</ol>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(9)' >Example 9</button>
+    <button onClick='sandbox.RUN(9)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-9' style="width:49%" rows=39>const csv_rules = String.raw`
+  file    = eol record+
+  record  = row eol
+  row     = (field [^\n\r]?)+
+  field   = esc / text
+  esc     = ('"' chs* '"')+
+  chs     = [^"]* skip?
+  skip    = '"' !'"' txt
+  eol     = [\n\r]*
+  text    = (bs / txt)*
+  bs      = [\\] [^]
+  txt     = [^,\n\r]
+`;
+
+const csv_actions = {
+  file: ([_,records]) => records,
+  record: ([row,_]) => row,
+  row: (fs) => fs.map(([f,_]) => f),
+  esc: (es) => es.map(([_,chs])=>
+                chs.join('')).join('"'),
+  chs: (cs) => cs.join(''),
+  skip: ([q, _, x]) => q+x,
+  bs: ([_, x]) => x,
+  text: (ts) => ts.join('')
+};
+
+test = String.raw`
+| A | B      | C |
+|:--|:------:|--:|
+| a | b      | c |
+| d | e\|f   | g |
+`;
+
+const dsv_rules = csv_rules.replace("^,", "^|\\");
+
+const csv = grit(dsv_rules, csv_actions);
+
+write(csv.parse(test));
+</textarea>
+  <textarea id='sandbox-dst-9' style="width:49%" rows=39></textarea>
+  
+      <textarea id='sandbox-eg-9-0' hidden>const csv_rules = String.raw`
+  file    = eol record+
+  record  = row eol
+  row     = (field [^\n\r]?)+
+  field   = esc / text
+  esc     = ('"' chs* '"')+
+  chs     = [^"]* skip?
+  skip    = '"' !'"' txt
+  eol     = [\n\r]*
+  text    = (bs / txt)*
+  bs      = [\\] [^]
+  txt     = [^,\n\r]
+`;
+
+const csv_actions = {
+  file: ([_,records]) => records,
+  record: ([row,_]) => row,
+  row: (fs) => fs.map(([f,_]) => f),
+  esc: (es) => es.map(([_,chs])=>
+                chs.join('')).join('"'),
+  chs: (cs) => cs.join(''),
+  skip: ([q, _, x]) => q+x,
+  bs: ([_, x]) => x,
+  text: (ts) => ts.join('')
+};
+
+test = String.raw`
+| A | B      | C |
+|:--|:------:|--:|
+| a | b      | c |
+| d | e\|f   | g |
+`;
+
+const dsv_rules = csv_rules.replace("^,", "^|\\");
+
+const csv = grit(dsv_rules, csv_actions);
+
+write(csv.parse(test));
+</textarea>
+  <script>sandbox.RUN(9)</script><br>
+
+<p>This demonstrates how a CSV grammar could be packaged up with the ability to specify the field delimiter character and/or back-slash escape via an external parameter. That would cover many of the common CSV variants.</p>
+<h2><span id="sect-Transformer"></span>Transformer</h2>
+<p>The action functions can be enhanced with application processing so that the parser acts as a transformer function for the input string. For example, if the application is to take a CSV table and transform it into an HTML table, then the action functions can be enhanced like this:</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(10)' >Example 10</button>
+    <button onClick='sandbox.RUN(10)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-10' style="width:49%" rows=29>const csv = grit`
+  file    = eol record+
+  record  = row eol
+  row     = (field ','?)+
+  field   = esc / txt
+  esc     = ('"' chs* '"')+
+  chs     = [^"]* skip?
+  skip    = ["][^",\n\r]
+  txt     = [^,\n\r]*
+  eol     = [\n\r]*
+`;
+csv.actions = {
+  file: ([_,records]) => 
+    "<table>"+records.join('')+"</table>",
+  record: ([row,_]) => "<tr>"+row+"</tr>",
+  row: (fs) => fs.map(([f,_]) => 
+               "<td>"+f+"</td>").join(''),
+  esc: (es) => es.map(([_,chs])=>
+                chs.join('')).join('"'),
+  chs: (cs) => cs.join('')
+};
+
+test = `
+a,b,c,
+d,"e,f""g",h
+`;
+
+write(csv.parse(test));
+</textarea>
+  <textarea id='sandbox-dst-10' style="width:49%" rows=29></textarea>
+  
+      <textarea id='sandbox-eg-10-0' hidden>const csv = grit`
+  file    = eol record+
+  record  = row eol
+  row     = (field ','?)+
+  field   = esc / txt
+  esc     = ('"' chs* '"')+
+  chs     = [^"]* skip?
+  skip    = ["][^",\n\r]
+  txt     = [^,\n\r]*
+  eol     = [\n\r]*
+`;
+csv.actions = {
+  file: ([_,records]) => 
+    "<table>"+records.join('')+"</table>",
+  record: ([row,_]) => "<tr>"+row+"</tr>",
+  row: (fs) => fs.map(([f,_]) => 
+               "<td>"+f+"</td>").join(''),
+  esc: (es) => es.map(([_,chs])=>
+                chs.join('')).join('"'),
+  chs: (cs) => cs.join('')
+};
+
+test = `
+a,b,c,
+d,"e,f""g",h
+`;
+
+write(csv.parse(test));
+</textarea>
+  <script>sandbox.RUN(10)</script><br>
+
+<p>Integrating the application processing with the parser action functions like this can be neat and efficient in some cases. But for more complicated applications it is better to keep the application processing separate. The parser can use the action functions to generate a sutabile AST (Abstract Syntax Tree) for the application to process.</p>
+<p>Transforming a Markdown table into HTML is best handled with a separate AST:</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(11)' >Example 11</button>
+    <button onClick='sandbox.RUN(11)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-11' style="width:49%" rows=52>const csv = grit`
+  file    = eol record+
+  record  = row eol
+  row     = (field '|'?)+
+  field   = (esc / txt)*
+  esc     = [\\] [^]
+  txt     = [^|\\\n\r\\]*
+  eol     = [\n\r]*
+`;
+csv.actions = {
+  file: ([_,records]) => records,
+  record: ([row,_]) => row,
+  row: (fs) => 
+    (fs[0][0]===""? fs.slice(1) : fs)
+      .map(([f,_]) => f),
+  field: (fs) => fs.join(''),
+  esc: ([_,x]) => x==="|"? "|" : "\\"+x
+};
+
+test = String.raw`
+| A | B      | C |
+|:--|:------:|--:|
+| a | b      | c |
+| d | e\|f   | g |
+`;
+
+var ast = csv.parse(test);
+write(ast);
+
+var html = process(ast);
+write(html);
+
+function process(ast) {
+    var hdr = header(ast[0]);
+    var css = ruler(ast[1]);
+    var bdy = body(ast.slice(2));
+    return "<table>"+hdr+bdy+"</table>";
+}
+function ruler(row) {
+    // ... generate CSS for alignment ....
+}
+function header(row) {
+    var hd = row.map((x) => "<hd>"+x+"</hd>")
+    return "<hr>"+hd+"</hr>";
+}
+function body(rows) {
+    return rows.map((row) => "<tr>"+
+      row.map((fld) => 
+        "<td>"+fld+"</td>").join('')
+      +"</tr>");
+}
+</textarea>
+  <textarea id='sandbox-dst-11' style="width:49%" rows=52></textarea>
+  
+      <textarea id='sandbox-eg-11-0' hidden>const csv = grit`
+  file    = eol record+
+  record  = row eol
+  row     = (field '|'?)+
+  field   = (esc / txt)*
+  esc     = [\\] [^]
+  txt     = [^|\\\n\r\\]*
+  eol     = [\n\r]*
+`;
+csv.actions = {
+  file: ([_,records]) => records,
+  record: ([row,_]) => row,
+  row: (fs) => 
+    (fs[0][0]===""? fs.slice(1) : fs)
+      .map(([f,_]) => f),
+  field: (fs) => fs.join(''),
+  esc: ([_,x]) => x==="|"? "|" : "\\"+x
+};
+
+test = String.raw`
+| A | B      | C |
+|:--|:------:|--:|
+| a | b      | c |
+| d | e\|f   | g |
+`;
+
+var ast = csv.parse(test);
+write(ast);
+
+var html = process(ast);
+write(html);
+
+function process(ast) {
+    var hdr = header(ast[0]);
+    var css = ruler(ast[1]);
+    var bdy = body(ast.slice(2));
+    return "<table>"+hdr+bdy+"</table>";
+}
+function ruler(row) {
+    // ... generate CSS for alignment ....
+}
+function header(row) {
+    var hd = row.map((x) => "<hd>"+x+"</hd>")
+    return "<hr>"+hd+"</hr>";
+}
+function body(rows) {
+    return rows.map((row) => "<tr>"+
+      row.map((fld) => 
+        "<td>"+fld+"</td>").join('')
+      +"</tr>");
+}
+</textarea>
+  <script>sandbox.RUN(11)</script><br>
+
+<p>This example illustrates a nice clean separation of concerns:</p>
+<ol>
+<li>The grammar rules to parse the syntax.</li>
+<li>The action functions to generate a clean AST.</li>
+<li>Tha application transforming the AST (into HTML).</li>
+</ol>
+<h2><span id="sect-Conclusion"></span>Conclusion</h2>
+<p>Grammar rules make good specifications, and it is not hard to transliterate other grammar rules (such as an IETF ABNF grammar) into Grit grammar rules.</p>
+<p>A Grit grammar automatically implements a parser, but a parser may need to be more permissive than a strict grammar specification. Implementations should follow a general principle of robustness: be conservative in what you send, be liberal in what you accept from others (<a href="https://en.wikipedia.org/wiki/Robustness_principle">Postel</a>).</p>
+<p>Grammar rules often look deceptivley simple, but the full implications of a grammar can be difficult to understand. To design a good grammar it is best to start with the smallest simple set of rules that can represent the basic syntax. The grammar rules can then be refined, expanded, and tested.</p>
+<p>It is usually best to ignore the parse tree output until the basic grammar rules are satisfactory. After that action functions can be added to translate the default syntax tree into an more formal AST appropriate for the application.</p>
+<p>In summary a grammar-parser can be developed in stages:</p>
+<ol>
+<li>
+<p>First the grammar as a specification, without any action functions.</p>
+</li>
+<li>
+<p>Then as a syntax parser, with minimal actions to generate a simple parse tree.</p>
+</li>
+<li>
+<p>Now for exploration and testing to verify the syntax and relax input restrictions.</p>
+</li>
+<li>
+<p>Finally enhance the actions to generate an AST or other output.</p>
+</li>
+</ol>
+<p>After a little practice it is tempting to do more and more with a grammar and integrate the application into the grammar rules and their semantic actions. But it is desirable to keep the grammar as close to an ideal specification as possible. An application program can process the parse tree with a global view and take pragmatic trade-offs that are best left out of the grammar specification.</p>
+<p>The ability to run a grammar specification as a parser is a delight, and it makes a very powerful tool.</p>
+<style type="text/css">
+	body {
+		font-family: 'Helvetica Neue', Helvetica, Arial, serif;
+		font-size: 1em;
+		line-height: 1.5;
+		color: #505050;
+	}
+	code.language-eg { display:block; background:whitesmoke; margin:0pt 10pt;}
+</style>
+
+</body>
+</html>

@@ -1,5 +1,5 @@
 const tests = [
-
+    // 0
     { rules: String.raw`
         S =  ''
     `, inputs: [ "" ],
@@ -8,7 +8,7 @@ const tests = [
     { rules: String.raw`
         S =  ""
     `,  inputs: [ "", "  " ],
-        expects: [ '', '  ' ]
+        expects: [ '', '' ]
     },
     { rules: String.raw`
         S =  'a'
@@ -25,6 +25,7 @@ const tests = [
     `, // => ['a','b']
       inputs: [ "ab", " a b"]
     },
+    // 5
     { rules: String.raw`
         S =  "a"+
     `, // => ["a","a","a"] // a list of strings
@@ -50,6 +51,7 @@ const tests = [
     `, inputs: ["  123"],
         expects: ["  123" ]
     },
+    // 10
     { rules: String.raw`
         S =  \s*(\d+)
     `, inputs: ["123", "  123"],
@@ -61,10 +63,23 @@ const tests = [
        expects: ["123", "123"]
     },
     { rules: String.raw`
-        S =  \s*(\d+(\w+\s*)+)
+        S =  ^([,])\s*
+    `, inputs: [",", ",  "],
+       expects: [",", ","]
+    },
+    { rules: String.raw`
+        S =  name (comma name)*
+        comma = ^([,])\s*
+        name = \w+
+    `, inputs: ["t", "t, d"],
+       expects: [["t",[]], ["t",[[",","d"]]] ]
+    },
+    { rules: String.raw`
+        S =  \s*(\d+(?:\w+\s*)+)
     `, inputs: ["123abc", "  123abc ", "1a b c"],
        expects: ["123abc", "123abc ", "1a b c"]
     },
+    // 15
     { rules: String.raw`
         S =  \s*((\w+(\s*\d+)*)+)
     `, inputs: ["abc 123 456def 321"]
@@ -89,6 +104,26 @@ const tests = [
     
     },
     { rules: String.raw`
+    S = x+
+    x = 'a'
+    `, inputs: [ "a", "aa"],
+        expects: [ ['a'], ['a','a']]
+    },
+    // 20
+    { rules: String.raw`
+    S = x*
+    x = 'a'
+    `, inputs: [ "", "a", "aa"],
+        expects: [ [], ['a'], ['a','a'] ]
+    },
+    { rules: String.raw`
+    S = x+ y
+    x = 'a'
+    y = 'b'
+    `, inputs: [ "ab", "aab"],
+        expects: [ [['a'],'b'], [['a','a'],'b']]
+    },
+    { rules: String.raw`
         S = (x y)+
         x = "a"
         y = [b]
@@ -96,10 +131,16 @@ const tests = [
         expects: [ [['a','b']], [['a','b']], [['a','b'],['a','b'], ['a','b']] ]
     },
     { rules: String.raw`
+        S = ('a'? 'b'?)+
+    `, inputs: [ "", "a", "b", "ab"],
+        expects: [ [['','']], [['a','']], [['','b']],[['a','b']] ]
+    },
+    { rules: String.raw`
         S =  !'x' [^] 'y' / "xxxx"
     `, inputs: ["yy", "zy", "xxxx"],
        expects: [ ["","y","y"], ["","z","y"], "xxxx"]
     },
+    // 25
     { rules: String.raw`
         S =  ![x]{3} [^] 'y' / "xxx" [^]
     `, inputs: ["yy", "zy", "xxxz"],

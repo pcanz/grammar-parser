@@ -1,4 +1,4 @@
-const grammar_parser = require("../grammar-parser.js");
+const grammar_parser = require("../grit-parser.js");
 
 const test_files = ["test-base", "test-act"]
 
@@ -71,6 +71,7 @@ function run_test(test, idx, i, report) {
 
 function match(xs, ys) {
     if (Array.isArray(xs)) {
+        if (xs.length !== ys.length) null;
         return xs.every((x, i) => match(x, ys[i]));
     } else return xs === ys;
 }

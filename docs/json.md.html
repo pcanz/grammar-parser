@@ -193,8 +193,7 @@ const grit_actions = { // semantic actions for parse tree nodes...
     },
 
     // regex   = &[[\\] (chs / par / misc)*
-    "regex": ([_, rs]) => rs[0]==='^'? 
-                ["^", rs.slice(1).join('')] : ["^", rs.join('')],
+    "regex": ([_, rs]) => ["^", rs.join('')],
 
     // par = [(] ([^()]* par?)* [)]
     "par": ([lp, ps, rp]) => { // par? => p, will be already done..
@@ -375,10 +374,7 @@ function parser (code, input, actions={}, options={}) {
                 maxPos = pos; 
                 maxRule = inRule;
             }
-            // return mx[1]||mx[0]; // used to skip white-space prefix
-            if (mx.length === 1) return mx[0];
-            if (mx.length === 2) return mx[1];
-            return mx.slice(1);
+            return mx[1]||mx[0]; // used to skip white-space prefix
 
         case '=': // ["=", name, idx]
             var idx = op[2];
@@ -431,27 +427,27 @@ function parser (code, input, actions={}, options={}) {
             return res;
 
         case '*': // ["*", op]
-        var start = pos;
-        var temp = run(op[1]);
-        if (temp === null) return [];
-        var res = [temp];
-        while (true) {
-            start = pos;
-            temp = run(op[1]);
-            if (temp === null || pos === start) break;
-            res.push(temp);
-        }
-        return res;
+            var start = pos;
+            var temp = run(op[1]);
+            if (temp === null) return [];
+            var res = [temp];
+            while (pos > start) {
+                start = pos;
+                temp = run(op[1]);
+                if (temp === null) break;
+                res.push(temp);
+            }
+            return res;
 
         case '+': // ["+", op]
             var start = pos;
             var temp = run(op[1]);
             if (temp === null) return null;
             var res = [temp];
-            while (true) {
+            while (pos > start) {
                 start = pos;
                 temp = run(op[1]);
-                if (temp === null || pos === start) break;
+                if (temp === null) break;
                 res.push(temp);
             }
             return res;
@@ -656,485 +652,317 @@ td.demo-2 { padding: 0pt 10pt; }
 
 </head>
 <body>
-<h1><span id="sect-Grit Grammar Parser Reference"></span>Grit Grammar Parser Reference</h1>
-<p>This reference guide is for the the NPM <code>grit-parser</code> package.</p>
-<p>Project repository: <a href="https://github.com/pcanz/grammar-parser">https://github.com/pcanz/grammar-parser</a></p>
-<h2><span id="sect-PEG Rules"></span>PEG Rules</h2>
-<p>A grammar rule names a PEG expression that contains string pattern matching components.</p>
-<p>A PEG expression <code>e</code> may be either:</p>
-<ul>
-<li>a rule name reference -- to match the expression defined by that rule.</li>
-<li>a string match component -- to directly match the input text.</li>
-</ul>
-<p>If <code>e1</code> and <code>e2</code> are PEG expressions, then so too is:</p>
-<ul>
-<li><code>e1 e2</code>    -- to match a sequence of e1 followed by e2</li>
-<li><code>e1 / e2</code>  -- which matches e1, or e2 if and only if e1 fails</li>
-<li><code>( e1 )</code>   -- to form a group</li>
-</ul>
-<p>The choice <code>e1 / e2</code> will only try <code>e2</code> if <code>e1</code> fails (first match wins), and there is no backtracking.</p>
-<ul>
-<li><code>e1 / e1 e2</code>  -- will therefore never match the second alternative.</li>
-</ul>
-<p>An empty match is not a failure, so: <code>e1* / e2</code> should never try to match e2. But in practice it is very easy to make this kind of mistake, and there seems to be no practical reason not to treat a match of nothing the same as a failure. So this is treated as a special case, and the parser will try to match <code>e2</code> if <code>e1</code> has not matched any input.</p>
-<p>Any PEG expression e can be given a predicate prefix:</p>
-<ul>
-<li><code>&amp;e</code> matches an empty string <code>''</code> if e matches, else it fails. No input is consumed.</li>
-<li><code>!e</code> matches an empty string <code>''</code> if e does NOT match, else it fails. No input is consumed.</li>
-</ul>
-<p>Any PEG expression e can be given a repeat suffix:</p>
-<ul>
-<li><code>e*</code> results in an array with zero or more matches.</li>
-<li><code>e+</code> results in an array with one or more matches.</li>
-<li><code>e?</code> will either match <code>e</code> or an empty string <code>''</code>.</li>
-</ul>
-<p>The result of a repeat is always the longest match and no other.</p>
-<ul>
-<li><code>e* e</code>  -- will therefore always fail to match any input.</li>
-</ul>
-<p>The binding strength or precedence is (low to high):</p>
-<ul>
-<li><code>e1 / e2</code></li>
-<li><code>e1 e2</code></li>
-<li><code>&amp;e !e</code></li>
-<li><code>e* e+ e?</code></li>
-</ul>
-<p>So, for example:</p>
-<ul>
-<li><code>e1 e2* / e3 (e4 / e5+)* =&gt; ((e1 e2*) / (e3 (e4 / e5+)*))</code></li>
-</ul>
-<h2><span id="sect-String Matching Components"></span>String Matching Components</h2>
-<p>A string matching component in a grammar rule can be either:</p>
-<ul>
-<li>
-<p>A literal quoted &ldquo;string&rdquo; or &lsquo;string&rsquo; to be matched.</p>
-<ul>
-<li>there are no escape codes.</li>
-<li>double-quote marks (but not single-quote mrks) will skip surrounding white-space.</li>
-</ul>
-</li>
-<li>
-<p>A regex to match a regular expression.</p>
-<ul>
-<li>a regex must start with <code>[</code> or <code>\</code> or <code>^</code></li>
-<li>for example: <code>[abc]</code> or <code>\d</code> or <code>^(abc)</code></li>
-<li>suffix repeats can be included in the regex, eg: <code>[abc]*</code> or <code>\d+</code></li>
-<li>after the start the regex is not restricted (it can be any valid RegExp)</li>
-<li>for example: <code>[abc]*(\s*\d{3,4})*</code></li>
-<li>the complete regex is evaluated as a single regular expression</li>
-<li>a regex can not contain any white-space, except in brackets, eg: <code>[ \t]*</code></li>
-<li>the result is the full matched string, or the first capture group if there is one.</li>
-</ul>
-</li>
-</ul>
-<p>Note that quoted literal <code>&quot;x&quot;</code> and the regex <code>[x]</code> will both match a literal character <code>x</code>, but  <code>&quot;x&quot;</code> will skip any surrounding white-space, so <code>&quot;x&quot;</code> is equivalent to the regex: <code>\s*(x)\s*</code></p>
-<pre><code>'a+b+c' =&gt; regex: [a]\+b\+c
-&quot;a+b+c&quot; =&gt; regex: \s*(a\+b\+c)\s*
-</code></pre>
-<p>A <code>^</code> in a regex will only match at the beginning, but since each regex component is treated as a separate match it is not necesary to use a <code>^</code> at the start of a regex component (but it does no harm). Since any regex <em>may</em> begin with a <code>^</code> is can be used to introduce any regex component, for example, <code>^(x)+</code> is a regex to match one or more x characters, but <code>(x)+</code> is not a regex, it will match a list of one or more <code>x</code> rules.</p>
-<p>Ideally the regex components should be kept simple, such as a char-set eg: <code>[abc]</code>, or a repeated char-class eg: <code>\d+</code>. There is no loss of expressive power in keeping the regex matches simple since they are components in a larger PEG grammar. The PEG logic can include lookahead tests eg: <code>&amp;x</code> for positive lookahead tests, or <code>!x</code> for negative lookahead tests, or a semantic action can be used.</p>
-<p>Simple regex components also eliminate troublesome issues with some regular expression implementations, see <a href="https://swtch.com/~rsc/regexp/regexp1.html">Russ Cox</a> for details.</p>
-<h2><span id="sect-Semantic Actions"></span>Semantic Actions</h2>
-<p>Semantic actions are functions that are appled to the result of a rule match. The actions are defined as properties of an object, which can be assigned to the <code>actions</code> property of a parser:</p>
+<h1><span id="sect-A Grit Parser For JSON"></span>A Grit Parser For JSON</h1>
+<p>JSON is specified in three places:</p>
+<ol>
+<li>Douglas Crockford&rsquo;s web page: <a href="http://www.json.org">http://www.json.org</a></li>
+<li>IETF 8259: <a href="https://tools.ietf.org/html/rfc8259">https://tools.ietf.org/html/rfc8259</a></li>
+<li>ECMA 404: <a href="http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf">http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf</a></li>
+</ol>
+<p>The ECMA and IETF specifications are intended to specify the same JSON language, with mutual agreement to correct any differences that may be discovered.</p>
+<p>The ECMA 404 standard uses a &ldquo;railway track&rdquo; diagram format to specify the syntax, but it is reasonably easy to construct Grit grammar rules from these diagrams.</p>
+<p>The grammar rules specified in IETF 8259 use the IETF standard ABNF grammar rule format, which can be translated into equivalent Grit grammar rules.</p>
+<p>The grammar rules specified in Douglas Crockfors&rsquo;s original web-page are easily transcribed into Grit grammar rules:</p>
 
   <div class="sandbox controls">
     
-      <select id="sandbox-select-1" onchange="sandbox.SELECT(1)">
-      
-      <option value='1'>Example 1.1</option>
-      <option value='2'>Example 1.2</option>
-      </select>
+      <button onClick='sandbox.RESET(1)' >Example 1</button>
     <button onClick='sandbox.RUN(1)'
             style="vertical-align:top">RUN</button>
   </div>
-  <textarea id='sandbox-src-1' style="width:49%" rows=20>const mdy = grit`
-    date  = month '/' day '/' year
-    day   = \d+
-    month = \d{1,2}
-    year  = \d{4}
+  <textarea id='sandbox-src-1' style="width:49%" rows=29>const json = grit`
+    json     = ws value ws
+    value    = object / array / string / number / literal
+    object   = "{" members? "}"
+    members  = member ("," member)*
+    member   = string ":" value
+    array    = "[" values? "]"
+    values   = value ("," value)*
+    string   = '"' chars* '"'
+    chars    = [^\x00-\x1f"\\]+ / '\' escape
+    escape   = ["\\/bfnrt] / [u][0-9a-fA-F]{4}
+    number   = integer fraction? exponent?
+    integer  = [-]?[1-9][0-9]+ / [-]?[0-9]
+    fraction = [.][0-9]+
+    exponent = [eE][+-]?[0-9]+
+    literal  = "true" / "false" / "null"
+    ws       = [ \n\r\t]*
 `;
 
-mdy.actions = {
-    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
-    day: (d) => Number(d),
-    month: (m) => Number(m),
-    year: (y) => Number(y)
-}
+var p = json.parse(`
+  { 
+    "hi": "Hello World!",
+    "ans": 42,
+    "bye": "thanks for \\n all the fish.."
+  }
+`);
 
-var dt = mdy.parse("3/4/2019");
-
-write(dt);</textarea>
-  <textarea id='sandbox-dst-1' style="width:49%" rows=20></textarea>
+write(p);
+</textarea>
+  <textarea id='sandbox-dst-1' style="width:49%" rows=29></textarea>
   
-      <textarea id='sandbox-eg-1-0' hidden>const mdy = grit`
-    date  = month '/' day '/' year
-    day   = \d+
-    month = \d{1,2}
-    year  = \d{4}
+      <textarea id='sandbox-eg-1-0' hidden>const json = grit`
+    json     = ws value ws
+    value    = object / array / string / number / literal
+    object   = "{" members? "}"
+    members  = member ("," member)*
+    member   = string ":" value
+    array    = "[" values? "]"
+    values   = value ("," value)*
+    string   = '"' chars* '"'
+    chars    = [^\x00-\x1f"\\]+ / '\' escape
+    escape   = ["\\/bfnrt] / [u][0-9a-fA-F]{4}
+    number   = integer fraction? exponent?
+    integer  = [-]?[1-9][0-9]+ / [-]?[0-9]
+    fraction = [.][0-9]+
+    exponent = [eE][+-]?[0-9]+
+    literal  = "true" / "false" / "null"
+    ws       = [ \n\r\t]*
 `;
 
-mdy.actions = {
-    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
-    day: (d) => Number(d),
-    month: (m) => Number(m),
-    year: (y) => Number(y)
-}
+var p = json.parse(`
+  { 
+    "hi": "Hello World!",
+    "ans": 42,
+    "bye": "thanks for \\n all the fish.."
+  }
+`);
 
-var dt = mdy.parse("3/4/2019");
-
-write(dt);</textarea>
-      <textarea id='sandbox-eg-1-1' hidden>const grammar = String.raw`
-    date  = month '/' day '/' year
-    day   = \d+
-    month = \d{1,2}
-    year  = \d{4}
-`;
-
-const actions = {
-    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
-    day: (d) => Number(d),
-    month: (m) => Number(m),
-    year: (y) => Number(y)
-}
-
-const mdy = grit(grammar, actions);
-
-var dt = mdy.parse("3/4/2019");
-
-write(dt);
+write(p);
 </textarea>
   <script>sandbox.RUN(1)</script><br>
 
-<p>The function name corresponding to the rule name will be called with the result matched by that rule.</p>
-<p>The grit grammar parser constructor function may also be called with two arguments: the grammar rules, and the action functions, as in example 1.2.</p>
-<p>The name of a semantic action function may be appended to a rule with a <code>:</code> separator:</p>
+<p>This Grit grammar is easy to read and understand, and it corresponds directly with the JSON specification. The advantage of the Grit version is that it can be automatically executed as a parser.</p>
+<p>Action functions can be added to translate the rule results into JavaScript data structures:</p>
 
   <div class="sandbox controls">
     
-      <select id="sandbox-select-2" onchange="sandbox.SELECT(2)">
-      
-      <option value='1'>Example 2.1</option>
-      <option value='2'>Example 2.2</option>
-      </select>
+      <button onClick='sandbox.RESET(2)' >Example 2</button>
     <button onClick='sandbox.RUN(2)'
             style="vertical-align:top">RUN</button>
   </div>
-  <textarea id='sandbox-src-2' style="width:49%" rows=18>const mdy = grit`
-    date  = month '/' day '/' year : date
-    day   = \d+                    : num
-    month = \d{1,2}                : num
-    year  = \d{4}                  : num
+  <textarea id='sandbox-src-2' style="width:49%" rows=54>const json = grit`
+    json     = ws value ws
+    value    = object / array / string / number / literal
+    object   = "{" members? "}"
+    members  = member ("," member)*
+    member   = string ":" value
+    array    = "[" values? "]"
+    values   = value ("," value)*
+    string   = '"' chars* '"'
+    chars    = [^\x00-\x1f"\\]+ / escape
+    escape   = [\\]["\\/bfnrt] / [\\][u][0-9a-fA-F]{4}
+    number   = integer fraction? exponent?
+    integer  = [-]?[1-9][0-9]+ / [-]?[0-9]
+    fraction = [.][0-9]+
+    exponent = [eE][+-]?[0-9]+
+    literal  = "true" / "false" / "null"
+    ws       = [ \n\r\t]*
 `;
 
-mdy.actions = {
-    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
-    num: (n) => Number(n)
-}
+json.actions = {
+    json: ([_,x]) => x,
+    object: ([_,x]) => x,
+    members: ([m,ms]) => {
+        var obj = {};
+        if (!m) return obj;
+        const mem = ([k,_,v]) => obj[k] = v===undefined? null:v;
+        mem(m);
+        ms.forEach(([_,kv]) => mem(kv));
+        return obj;
+    },
+    array: ([_,x]) => x,
+    values: ([v,vs]) => {
+        var arr = [];
+        if (!v) return arr;
+        arr.push(v===undefined? null:v);
+        vs.forEach(([_,v]) => arr.push(v===undefined? null:v));
+        return arr;
+    },
+    string: ([_,s]) => s.join(''),
+    number: (xs) => Number(xs.join('')),
+    literal: (s) => s[0]==="t"? true : (s[0]==="f"? false : undefined)
+};
 
-var dt = mdy.parse("3/4/2019");
+var p = json.parse(`
+  { 
+    "hi": "Hello World!",
+    "ans": 42,
+    "arr": [1,2,"three",[true,null]],
+    "bye": "thanks for \\n all the fish.."
+  }
+`);
 
-write(dt);</textarea>
-  <textarea id='sandbox-dst-2' style="width:49%" rows=18></textarea>
+write(p);
+</textarea>
+  <textarea id='sandbox-dst-2' style="width:49%" rows=54></textarea>
   
-      <textarea id='sandbox-eg-2-0' hidden>const mdy = grit`
-    date  = month '/' day '/' year : date
-    day   = \d+                    : num
-    month = \d{1,2}                : num
-    year  = \d{4}                  : num
+      <textarea id='sandbox-eg-2-0' hidden>const json = grit`
+    json     = ws value ws
+    value    = object / array / string / number / literal
+    object   = "{" members? "}"
+    members  = member ("," member)*
+    member   = string ":" value
+    array    = "[" values? "]"
+    values   = value ("," value)*
+    string   = '"' chars* '"'
+    chars    = [^\x00-\x1f"\\]+ / escape
+    escape   = [\\]["\\/bfnrt] / [\\][u][0-9a-fA-F]{4}
+    number   = integer fraction? exponent?
+    integer  = [-]?[1-9][0-9]+ / [-]?[0-9]
+    fraction = [.][0-9]+
+    exponent = [eE][+-]?[0-9]+
+    literal  = "true" / "false" / "null"
+    ws       = [ \n\r\t]*
 `;
 
-mdy.actions = {
-    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
-    num: (n) => Number(n)
-}
+json.actions = {
+    json: ([_,x]) => x,
+    object: ([_,x]) => x,
+    members: ([m,ms]) => {
+        var obj = {};
+        if (!m) return obj;
+        const mem = ([k,_,v]) => obj[k] = v===undefined? null:v;
+        mem(m);
+        ms.forEach(([_,kv]) => mem(kv));
+        return obj;
+    },
+    array: ([_,x]) => x,
+    values: ([v,vs]) => {
+        var arr = [];
+        if (!v) return arr;
+        arr.push(v===undefined? null:v);
+        vs.forEach(([_,v]) => arr.push(v===undefined? null:v));
+        return arr;
+    },
+    string: ([_,s]) => s.join(''),
+    number: (xs) => Number(xs.join('')),
+    literal: (s) => s[0]==="t"? true : (s[0]==="f"? false : undefined)
+};
 
-var dt = mdy.parse("3/4/2019");
+var p = json.parse(`
+  { 
+    "hi": "Hello World!",
+    "ans": 42,
+    "arr": [1,2,"three",[true,null]],
+    "bye": "thanks for \\n all the fish.."
+  }
+`);
 
-write(dt);</textarea>
-      <textarea id='sandbox-eg-2-1' hidden>const grammar = String.raw`
-    date  = month '/' day '/' year : date
-    day   = \d+                    : num
-    month = \d{1,2}                : num
-    year  = \d{4}                  : num
-`;
-
-const actions = {
-    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
-    num: (d) => Number(d)
-}
-
-const mdy = grit(grammar, actions);
-
-var dt = mdy.parse("3/4/2019");
-
-write(dt);
+write(p);
 </textarea>
   <script>sandbox.RUN(2)</script><br>
 
-<p>If the semantic action returns <code>null</code> then the rule will fail, otherwise the action may return any result as the rule result.</p>
-<p>If the rule has a semantic action function name that does not match a custom function then it may match a standard built-in function name.</p>
-<p>An application program can always process the default parse tree without using any semantic actions(in that case the parse tree result will be an array of arrays of string values). But it is often more convenient to break the parse tree processing into smaller functions applied to the result of an individual rule.</p>
-<p>For example, a calculator application could process the parse tree for arithmetic expressions, but it is simpler to break the calculator application into semantic action functions that incrementally process the results of individual grammar rules:</p>
+<p>There is a problem with translating the JSON &ldquo;null&rdquo; value into a JavaScript <code>null</code> value. A <code>null</code> value can not be returned by an action function since that would be interpreted as the rule failing to match the input text.</p>
+<p>For this reason the JSON &ldquo;null&rdquo; value is interpreted as a JavaScript <code>undefined</code> value. This is not an unreasonable JavaScript interpretation of a JSON &ldquo;null&rdquo; value. However, in this implementation the <code>values</code> and <code>members</code> functions substitute the <code>null</code> value for any <code>undefined</code> values in the resulting JavaScript data structures.</p>
+<p>There is a small defect in the JSON specification for JavaScript strings. JSON allows the Unicode line terminators U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR to appear unescaped in quoted strings, these characters are illegal in JavaScript strings (ECMAScript).</p>
+<p>Of course there are standard JSON parsers for JavaScript and many other programming languages that are well supported and battle tested. The Grit version is just a demonstration, to show that it is simple to implement and easy to understand. It follows directly from the specifications, and the resulting parser is practical and efficient.</p>
+<p>For comparison here are the original JSON grammar rule specifications:</p>
+<pre class='demo-eg'>    json
+        element
 
-  <div class="sandbox controls">
-    
-      <button onClick='sandbox.RESET(3)' >Example 3</button>
-    <button onClick='sandbox.RUN(3)'
-            style="vertical-align:top">RUN</button>
-  </div>
-  <textarea id='sandbox-src-3' style="width:49%" rows=20>const arith = grit`
-  expr   = factor ([+-] factor)*
-  factor = term ([*/] term)*
-  term   = \d+ / "(" expr ")"
-`;
+    value
+        object
+        array
+        string
+        number
+        "true"
+        "false"
+        "null"
 
-arith.actions = {
-  expr:   ([f, fs]) =>
-            fs.reduce((y, [op, x]) =>
-              op === '+'? y+x : y-x, f),   
-  factor: ([t, ts]) =>
-            ts.reduce((y, [op, x]) =>
-              op === "*"? y*x : y/x, t),
-  term:   (x) => Number(x) || x[1]
-}
+    object
+        '{' ws '}'
+        '{' members '}'
 
-var e = arith.parse("1+2*(3+4)-5");
+    members
+        member
+        member ',' members
 
-write(e);
-</textarea>
-  <textarea id='sandbox-dst-3' style="width:49%" rows=20></textarea>
-  
-      <textarea id='sandbox-eg-3-0' hidden>const arith = grit`
-  expr   = factor ([+-] factor)*
-  factor = term ([*/] term)*
-  term   = \d+ / "(" expr ")"
-`;
+    member
+        ws string ws ':' element
 
-arith.actions = {
-  expr:   ([f, fs]) =>
-            fs.reduce((y, [op, x]) =>
-              op === '+'? y+x : y-x, f),   
-  factor: ([t, ts]) =>
-            ts.reduce((y, [op, x]) =>
-              op === "*"? y*x : y/x, t),
-  term:   (x) => Number(x) || x[1]
-}
+    array
+        '[' ws ']'
+        '[' elements ']'
 
-var e = arith.parse("1+2*(3+4)-5");
+    elements
+        element
+        element ',' elements
 
-write(e);
-</textarea>
-  <script>sandbox.RUN(3)</script><br>
+    element
+        ws value ws
 
-<p>The action functions are called with two arguments:</p>
-<ul>
-<li>The rule result -- this is usually all that is required.</li>
-<li>A parse object: <code>{ name, action, pos, input, posit}</code>
-<ul>
-<li>name: the rule name</li>
-<li><code>action</code>: the action appended to the rule</li>
-<li><code>pos</code>: the current input position (after the rule match)</li>
-<li><code>input</code>: the input string being parsed</li>
-<li><code>posit(i)</code>: a function to set a new position.</li>
-</ul>
-</li>
-</ul>
-<p>The second argument parse object is not often needed, but it gives the action function access to information that can be useful for debugging, or for experimental actions (extending the buit-in functions), or even to take over for special case parsing if necesserary.</p>
-<p>It is good practice to first develop a grammar parser without using any semantic action functions. This first priority is to ensure that the grammar rules recognise input strings correctly, regardless of the structure of the parse tree. After that the rules may be reorganized to simplify the parse tree, and finally semantic actions may be employed to process the parse tree as needed by the application.</p>
-<p>It is important to remember that a semantic action may be called before the rule later fails as a component in another rule. This is too late for any side effects the semantic action may have generated.</p>
-<h3><span id="sect-Built-in Functions"></span>Built-in Functions</h3>
-<p>The built-in functions:</p>
-<ul>
-<li><code>string</code> converts the result into a string.</li>
-<li><code>number</code> converts the result into a number.</li>
-</ul>
-<p>Synthetic <code>x_xx_x</code> function names can be used to select <code>x</code> or skip <code>_</code> components in a rule result.</p>
-<p>Rules of this form: <code>x (op x)*</code> are an idiomatic way to mastch lists with separators, or arthmetic expressions, and many other formats. These rules generate an awkward parse tree structure which can be simplified by these standard functions:</p>
-<ul>
-<li>yfx returns a left associative tree.  e.g.  <code>1+2+3 =&gt; (1+2)+3</code></li>
-<li>xfy returns a right associative tree.  e.g. <code>2^3^4 =&gt; 2^(3^4)</code></li>
-<li>xfx returns a flat list including the operators. e.g. <code>1+2+3 =&gt; 1 + 2 + 3</code></li>
-<li>yfy returns a flat list including the operators. e.g. <code>1+2+3 =&gt; 1 2 3</code></li>
-</ul>
-<p>The <code>yfx</code> and <code>xfy</code> actions generate parse tree nodes in this form:</p>
-<pre class='demo-eg'>    [op, left_tree, right_tree]
-</pre>
-<p>Here they are used to generate the desired parse tree for our arithmetic expression grammar:</p>
+    string
+        '"' characters '"'
 
-  <div class="sandbox controls">
-    
-      <button onClick='sandbox.RESET(4)' >Example 4</button>
-    <button onClick='sandbox.RUN(4)'
-            style="vertical-align:top">RUN</button>
-  </div>
-  <textarea id='sandbox-src-4' style="width:49%" rows=16>const expr = grit`
-  expr   = factor ([+-] factor)*   : yfx
-  factor = term ([*/] term)*       : yfx
-  term   = prime ("^" prime)*      : xfy
-  prime  = numb / group            : x
-  group  = "(" expr ")"            : _x_
-  numb   = \d+                     : number
-`;
+    characters
+        ""
+        character characters
 
-write( expr.parse(`1+2+3+4+5`) );
+    character
+        '0020' . '10ffff' - '"' - '\'
+        '\' escape
 
-write( expr.parse(`2^3^4`) );
+    escape
+        '"'
+        '\'
+        '/'
+        'b'
+        'f'
+        'n'
+        'r'
+        't'
+        'u' hex hex hex hex
 
-write( expr.parse(`1+2+3*(4+5)-6`) );
+    hex
+        digit
+        'A' . 'F'
+        'a' . 'f'
 
-</textarea>
-  <textarea id='sandbox-dst-4' style="width:49%" rows=16></textarea>
-  
-      <textarea id='sandbox-eg-4-0' hidden>const expr = grit`
-  expr   = factor ([+-] factor)*   : yfx
-  factor = term ([*/] term)*       : yfx
-  term   = prime ("^" prime)*      : xfy
-  prime  = numb / group            : x
-  group  = "(" expr ")"            : _x_
-  numb   = \d+                     : number
-`;
+    number
+        integer fraction exponent
 
-write( expr.parse(`1+2+3+4+5`) );
+    integer
+        digit
+        onenine digits
+        '-' digit
+        '-' onenine digits
 
-write( expr.parse(`2^3^4`) );
+    digits
+        digit
+        digit digits
 
-write( expr.parse(`1+2+3*(4+5)-6`) );
+    digit
+        '0'
+        onenine
 
-</textarea>
-  <script>sandbox.RUN(4)</script><br>
+    onenine
+        '1' . '9'
 
-<p>The tree structures:</p>
-<pre><code class="language-box">              +                 ^          
-             / \               / \         
-  yfx:      +   4      xfy:   1   ^        xfx:  1 + 2 + 3 + 4    yfy:  1 2 3 4 
-           / \                   / \
-          +   3                 2   ^    
-         / \                       / \
-        1   2                     3   4     
-</code></pre>
-<p>The semantic actions can be thought of as a sort of type specification for the rule result, which can be appended to the end of the rule.</p>
-<h2><span id="sect-Debug Trace"></span>Debug Trace</h2>
-<p>The <code>parse</code> function has a second argument for options, which can generate a trace log to help debug a grammar.</p>
-<p>Here is an example of using a trace:</p>
-<pre class='demo-eg'>    const arith = grit`
-        expr   = factor ([+-] factor)*
-        factor = term ([*/] term)*
-        term   = \d+ / "(" expr ")"
-    `;
+    fraction
+        ""
+        '.' digits
 
-    var e = expr.parse("1+2*(3+4)-5", {trace: true} );
+    exponent
+        ""
+        'E' sign digits
+        'e' sign digits
 
-    0..1 term /\d+/y =>1
-    1 factor /[*\/]/y !
-    1..2 expr /[+-]/y =>+
-    2..3 term /\d+/y =>2
-    3..4 factor /[*\/]/y =>*
-    4 term /\d+/y !
-    4..5 term /\s*(\()/y =>(
-    5..6 term /\d+/y =>3
-    6 factor /[*\/]/y !
-    6..7 expr /[+-]/y =>+
-    7..8 term /\d+/y =>4
-    8 factor /[*\/]/y !
-    8 expr /[+-]/y !
-    8..9 term /\s*(\))/y =>)
-    9 factor /[*\/]/y !
-    9..10 expr /[+-]/y =>-
-    10..11 term /\d+/y =>5
-    11 factor /[*\/]/y !
-    11 expr /[+-]/y !
+    sign
+        ""
+        '+'
+        '-'
 
-</pre>
-<p>The numbers on the left are the input position of the match components with the name of the rule the component is in. Only the input match operations are logged in the trace, they usually give the most useful information, and a full trace of all rules can be very verbose.</p>
-<h2><span id="sect-Grammar Grammar"></span>Grammar Grammar</h2>
-<p>The grammar rules can define themselves. Here is a minimal grammar that is sufficient to define itself and parse itself:</p>
-
-  <div class="sandbox controls">
-    
-      <button onClick='sandbox.RESET(5)' >Example 5</button>
-    <button onClick='sandbox.RUN(5)'
-            style="vertical-align:top">RUN</button>
-  </div>
-  <textarea id='sandbox-src-5' style="width:49%" rows=20>const g1 = String.raw`
-    grammar = (ws rule ws)+
-    rule    = name ws [=] expr
-
-    expr    = seq (ws [/] seq)*
-    seq     = ([ ]* term [*+?]?)*
-    term    = name / match / group
-
-    name    = [\w]+
-    match   = [[] [^\x5D]+ [\x5D] [*+?]?
-    group   = [(] expr [)]
-
-    ws      = [\s]*
-`;
-
-var p = grit(g1).parse(g1);
-
-print(p);
-
-</textarea>
-  <textarea id='sandbox-dst-5' style="width:49%" rows=20></textarea>
-  
-      <textarea id='sandbox-eg-5-0' hidden>const g1 = String.raw`
-    grammar = (ws rule ws)+
-    rule    = name ws [=] expr
-
-    expr    = seq (ws [/] seq)*
-    seq     = ([ ]* term [*+?]?)*
-    term    = name / match / group
-
-    name    = [\w]+
-    match   = [[] [^\x5D]+ [\x5D] [*+?]?
-    group   = [(] expr [)]
-
-    ws      = [\s]*
-`;
-
-var p = grit(g1).parse(g1);
-
-print(p);
-
-</textarea>
-  <script>sandbox.RUN(5)</script><br>
-
-<p>This grammar only accepts simple regex char-set string match components.</p>
-<p>Here is the full grit grammar grammar:</p>
-<pre class='demo-eg'>    grammar = rule+
-    rule    = name "=" expr ws act?
-
-    expr    = seq ("/" seq)*
-    seq     = (ws [&amp;!]? term [*+?]?)*
-    term    = ref / quote / regex / group
-
-    name    = ws \w+
-    ref     = name !\s*=
-    group   = "(" expr ")"
-
-    quote   = '"' [^"]* '"' / "'" [^']* "'"
-    regex   = &amp;[[\\^] (chs / par / misc)+
-    chs     = [\[] ([^\]\\]* ([\\][^])?)+ [\]]
-    par     = [(] ([^()]* par?)* [)]
-    misc    = [^[()\s]+
-
-    act     = ":" lines
-    lines   = line (\s* !\S+\s*= line)*
-    line    = [^\n\r]* 
-    ws      = \s*  
+    ws
+        ""
+        '0020' ws
+        '000D' ws
+        '000A' ws
+        '0009' ws
 </pre>
 <pre hidden>"   smart
 '   smart
 </pre>
-<style type="text/css">
-	body {
-		font-family: 'Helvetica Neue', Helvetica, Arial, serif;
-		font-size: 1em;
-		line-height: 1.5;
-		color: #505050;
-	}
-	code.language-eg { display:block; background:whitesmoke; margin:0pt 10pt;}
-</style>
 
 </body>
 </html>
