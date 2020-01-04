@@ -518,6 +518,8 @@ function parser (code, input, actions={}, options={}) {
         pos = n;
     }
 
+    var cache = {};
+
     function run_action(result, parse) {
         var fn = null;
         var {name, action} = parse; // {name, action, pos, input, posit}
@@ -541,6 +543,7 @@ function parser (code, input, actions={}, options={}) {
         if (fn) {
             try {
                 return fn(result, parse);
+                // return fn(result, {...parse, _:parse, $:parse.cache });
             } catch(err) {
                 report("Bad action for '"+name+"':\n"+err);
             }
@@ -626,6 +629,7 @@ return this || (typeof window !== 'undefined' ? window : global);
 </ul>
 <h2><span id="sect-Examples"></span>Examples</h2>
 <ul>
+<li><a href="https://pcanz.github.io/grammar-parser/uri.md.html">URI</a></li>
 <li><a href="https://pcanz.github.io/grammar-parser/json.md.html">JSON</a></li>
 <li><a href="https://pcanz.github.io/grammar-parser/toml.md.html">TOML</a></li>
 </ul>
