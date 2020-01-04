@@ -20,6 +20,7 @@ Grammar rules make great specifications, and now you can use them directly in yo
 
 ## Examples
 
+* [URI]
 * [JSON]
 * [TOML]
 
@@ -29,6 +30,7 @@ Grammar rules make great specifications, and now you can use them directly in yo
 [Tutorial]: https://pcanz.github.io/grammar-parser/tutorial.md.html
 [CSV Study]: https://pcanz.github.io/grammar-parser/cvs.md.html
 [Refence Manual]: https://pcanz.github.io/grammar-parser/reference.md.html
+[URI]: https://pcanz.github.io/grammar-parser/uri.md.html
 [JSON]: https://pcanz.github.io/grammar-parser/json.md.html
 [TOML]: https://pcanz.github.io/grammar-parser/toml.md.html
 [Playpen]: https://pcanz.github.io/grammar-parser/dingus.md.html

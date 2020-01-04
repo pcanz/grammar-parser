@@ -1,7 +1,7 @@
 {
   "name": "grit-parser",
   "version": "3.0.2",
-  "description": "Grammar rules are simply better than regular expressions.",
+  "description": "Grammar rules for programmers!",
   "main": "grit-parser.js",
   "directories": {
     "doc": "docs",

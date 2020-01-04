@@ -23,7 +23,7 @@ const date = grit`
     day   = \d\d
 `;
 
-var date_match = date.match("2013-04-05")
+var date_match = date.parse("2013-04-05")
 
 write(date_match)  // ===>
 ---
@@ -49,7 +49,7 @@ The `date` grammar rule matches a sequence of five components. Three named compo
 
 The `year`, `month` and `day` rules are defined using standard regular expressions. As usual, the `\d` represents a digit character `[0-9]`, and `\d{4}` matches four digits.
 
-The `grit` function is a JavaScript [template literal tag function] which reads the Grit grammar rules as a DSL (Domain Specific Language). The result of the `grit` function is a `date` parser object. The parser provides a `match` function that will match input text according to the grammar rule specification.   
+The `grit` function is a JavaScript [template literal tag function] which reads the Grit grammar rules as a DSL (Domain Specific Language). The result of the `grit` function is a `date` parser object. The parser provides a `parse` function that will match input text according to the grammar rule specification.   
 
 [template literal tag function]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals
 
@@ -72,7 +72,7 @@ const date = grit`
     year  = \d{4}
 `;
 
-var date_match = date.match("2013-04-05")
+var date_match = date.parse("2013-04-05")
 
 write(date_match)  // ===>
 ```

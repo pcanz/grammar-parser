@@ -1,3 +1,12 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta lang=en charset="UTF-8">
+<script>if (window.moko) alert("!!! moko global name conflict....");
+window.moko = {}
+</script>
+
+<script>
 // Grammar Parser -- an evolution of Grit.
 
 // See docs at: https://github.com/pcanz/grammar-parser
@@ -588,3 +597,183 @@ if (typeof module !== 'undefined' && typeof exports === 'object') {
 return this || (typeof window !== 'undefined' ? window : global);
 }()); // outer funtion name-space wrapper
 
+;
+</script> 
+<style>
+td.demo-1, .demo-eg { margin-right:10pt; background:whitesmoke;
+                       padding: 0pt 10pt; }
+td.demo-2 { padding: 0pt 10pt; }
+</style>
+<script type="text/javascript">
+    var moko = window.moko || (window.moko = {});
+    moko.sandbox = {};
+    moko.sandbox.write = (txt) => res += JSON.stringify(txt)
+    var sandbox = moko.sandbox
+    sandbox.RESET = (i) => {
+	    var src = sandbox.textarea_src(i)
+        var example = sandbox.example(i, 0)
+	    src.value = example.value
+	    sandbox.RUN(i);
+    }
+    sandbox.RUN = (i) => {
+        var src = sandbox.textarea_src(i)
+        var dst = sandbox.textarea_dst(i)
+        var res = "";
+        try {
+            var verbs = {
+                // grit: window.Grit,
+                grammar_parser: window.grammar_parser, // new grit,
+                grit: window.grammar_parser, // grit 3.x
+                write: (...args) => {
+                    res += args.map((arg)=>
+                        JSON.stringify(arg)).join(' ')+"\r\n\r\n";
+                },
+                print: (...args) => {
+                    res += args.map((arg)=>
+                        JSON.stringify(arg,null,2)).join(' ')+"\r\n\r\n";
+                }    
+            }
+            var keys = Object.keys(verbs);
+            var vals = keys.map((k)=> verbs[k])
+            var fn = new Function(...keys, src.value)
+            fn(...vals);
+        } catch(err) {
+            res = err
+        }
+        dst.value = res;
+    }
+    sandbox.SELECT = (i) => {
+        var x = document.getElementById("sandbox-select-"+i).value;
+        var example = sandbox.example(i, x-1)
+        var src = sandbox.textarea_src(i)
+        src.value = example.value
+        sandbox.RUN(i);
+    }
+    sandbox.textarea_src = (i) => document.getElementById('sandbox-src-'+i);
+    sandbox.textarea_dst = (i) => document.getElementById('sandbox-dst-'+i);
+    sandbox.example = (i, n) => document.getElementById('sandbox-eg-'+i+'-'+n);
+</script>
+<style>
+textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
+</style>
+
+</head>
+<body>
+<h1><span id="sect-A Grit URI Parser"></span>A Grit URI Parser</h1>
+<p>The URI format is defined by the IETF <a href="https://tools.ietf.org/html/rfc3986">RFC 3986</a> specification.</p>
+<p>The IETF RFCs uses <a href="https://tools.ietf.org/html/rfc5234">ABNF</a> grammar rules, but it is reasonably easy to transliterate ABNF rules into Grit grammar rules.</p>
+<p>Here is the first ABNF rule:</p>
+<pre class='demo-eg'>    URI = scheme ":" hier-part [ "?" query ] [ "#" fragment ]
+</pre>
+<p>In Grit this can be written as:</p>
+<pre class='demo-eg'>    URI = scheme ':' hier-part ('?' query)? ('#' fragment)?
+</pre>
+<p>In ABNF square brackets are used for optional components, but in Grit square brackets are used in regular expression components. The double quotes have been changed to single quotes becaue in Grit double quotes allow white-space before and after the quoted literal, and a URI can not contain any white-space.</p>
+<p>We could go on and translate the full ABNF specification into a Grit grammar, but <a href="https://tools.ietf.org/html/rfc3986">RFC 3986</a> also provides this regular expression to match a URI:</p>
+<pre class='demo-eg'>    ^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?
+</pre>
+<p>We can break this regular expression into component parts as named rules in a Grit grammar:</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(1)' >Example 1</button>
+    <button onClick='sandbox.RUN(1)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-1' style="width:49%" rows=13>const uri = grit`
+    URI       = scheme? authority? path query? fragment?
+    scheme    = [^:/?#]+ ':'
+    authority = '//' [^/?#]*
+    path      = [^?#]*
+    query     = '?' [^#]*
+    fragment  = '#' \S*
+`;
+
+var test = "http://www.ics.uci.edu/pub/ietf/uri/#Related";
+
+write(uri.parse(test));
+</textarea>
+  <textarea id='sandbox-dst-1' style="width:49%" rows=13></textarea>
+  
+      <textarea id='sandbox-eg-1-0' hidden>const uri = grit`
+    URI       = scheme? authority? path query? fragment?
+    scheme    = [^:/?#]+ ':'
+    authority = '//' [^/?#]*
+    path      = [^?#]*
+    query     = '?' [^#]*
+    fragment  = '#' \S*
+`;
+
+var test = "http://www.ics.uci.edu/pub/ietf/uri/#Related";
+
+write(uri.parse(test));
+</textarea>
+  <script>sandbox.RUN(1)</script><br>
+
+<p>This grammar matches in exactly the same way as the regular expression.</p>
+<p>We can use action functions to generate a more useful result:</p>
+
+  <div class="sandbox controls">
+    
+      <button onClick='sandbox.RESET(2)' >Example 2</button>
+    <button onClick='sandbox.RUN(2)'
+            style="vertical-align:top">RUN</button>
+  </div>
+  <textarea id='sandbox-src-2' style="width:49%" rows=21>const uri = grit`
+    URI       = scheme? authority? path query? fragment?
+    scheme    = [^:/?#]+ ':'
+    authority = '//' [^/?#]*
+    path      = [^?#]*
+    query     = '?' [^#]*
+    fragment  = '#' \S*
+`;
+uri.actions = {
+    URI: ([scheme, authority, path, query, fragment]) =>
+        ({scheme, authority, path, query, fragment}),
+    scheme: ([s,_]) => s,
+    authority: ([_,s]) => s,
+    query: ([_,s]) => s,
+    fragment: ([_,s]) => s
+}
+
+var test = "http://www.ics.uci.edu/pub/ietf/uri/#Related";
+
+print(uri.parse(test));
+</textarea>
+  <textarea id='sandbox-dst-2' style="width:49%" rows=21></textarea>
+  
+      <textarea id='sandbox-eg-2-0' hidden>const uri = grit`
+    URI       = scheme? authority? path query? fragment?
+    scheme    = [^:/?#]+ ':'
+    authority = '//' [^/?#]*
+    path      = [^?#]*
+    query     = '?' [^#]*
+    fragment  = '#' \S*
+`;
+uri.actions = {
+    URI: ([scheme, authority, path, query, fragment]) =>
+        ({scheme, authority, path, query, fragment}),
+    scheme: ([s,_]) => s,
+    authority: ([_,s]) => s,
+    query: ([_,s]) => s,
+    fragment: ([_,s]) => s
+}
+
+var test = "http://www.ics.uci.edu/pub/ietf/uri/#Related";
+
+print(uri.parse(test));
+</textarea>
+  <script>sandbox.RUN(2)</script><br>
+
+<style type="text/css">
+	body {
+		font-family: 'Helvetica Neue', Helvetica, Arial, serif;
+		font-size: 1em;
+		line-height: 1.5;
+		color: #505050;
+	}
+	code.language-eg { display:block; background:whitesmoke; margin:0pt 10pt;}
+</style>
+
+</body>
+</html>

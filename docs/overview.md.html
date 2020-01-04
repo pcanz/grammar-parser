@@ -518,6 +518,8 @@ function parser (code, input, actions={}, options={}) {
         pos = n;
     }
 
+    var cache = {};
+
     function run_action(result, parse) {
         var fn = null;
         var {name, action} = parse; // {name, action, pos, input, posit}
@@ -541,6 +543,7 @@ function parser (code, input, actions={}, options={}) {
         if (fn) {
             try {
                 return fn(result, parse);
+                // return fn(result, {...parse, _:parse, $:parse.cache });
             } catch(err) {
                 report("Bad action for '"+name+"':\n"+err);
             }
@@ -683,7 +686,7 @@ textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
     day   = \d\d
 `;
 
-var date_match = date.match("2013-04-05")
+var date_match = date.parse("2013-04-05")
 
 write(date_match)  // ===></textarea>
   <textarea id='sandbox-dst-1' style="width:49%" rows=10></textarea>
@@ -695,7 +698,7 @@ write(date_match)  // ===></textarea>
     day   = \d\d
 `;
 
-var date_match = date.match("2013-04-05")
+var date_match = date.parse("2013-04-05")
 
 write(date_match)  // ===></textarea>
       <textarea id='sandbox-eg-1-1' hidden>// using a single grammar rule...
@@ -719,7 +722,7 @@ write(date_match)
 
 <p>The <code>date</code> grammar rule matches a sequence of five components. Three named components (year, month, day) separated by two literal &ldquo;-&rdquo; dash components. The white space in the rule separates the component parts, but is otherwise insignificant.</p>
 <p>The <code>year</code>, <code>month</code> and <code>day</code> rules are defined using standard regular expressions. As usual, the <code>\d</code> represents a digit character <code>[0-9]</code>, and <code>\d{4}</code> matches four digits.</p>
-<p>The <code>grit</code> function is a JavaScript <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals">template literal tag function</a> which reads the Grit grammar rules as a DSL (Domain Specific Language). The result of the <code>grit</code> function is a <code>date</code> parser object. The parser provides a <code>match</code> function that will match input text according to the grammar rule specification.</p>
+<p>The <code>grit</code> function is a JavaScript <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals">template literal tag function</a> which reads the Grit grammar rules as a DSL (Domain Specific Language). The result of the <code>grit</code> function is a <code>date</code> parser object. The parser provides a <code>parse</code> function that will match input text according to the grammar rule specification.</p>
 <p>This example could be written as a single grammar rule, or as a standard regular expression (as shown in examples 1.2 and 1.3). Grammar rules allow a regular expression to be separated out into smaller component parts that can be named with their semantic meaning. This makes the grammar much easier to read and understand, particularly in larger examples.</p>
 <p>The key point is that the <code>grit</code> function enables a programmaer to write grammar rules that can be directly used to match input text strings. The grammar rules <em>are</em> the parser.</p>
 <h2><span id="sect-Grammar Rules"></span>Grammar Rules</h2>
@@ -738,7 +741,7 @@ write(date_match)
     year  = \d{4}
 `;
 
-var date_match = date.match("2013-04-05")
+var date_match = date.parse("2013-04-05")
 
 write(date_match)  // ===>
 </textarea>
@@ -751,7 +754,7 @@ write(date_match)  // ===>
     year  = \d{4}
 `;
 
-var date_match = date.match("2013-04-05")
+var date_match = date.parse("2013-04-05")
 
 write(date_match)  // ===>
 </textarea>
