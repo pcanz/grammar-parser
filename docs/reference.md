@@ -4,6 +4,64 @@ This reference guide is for the the NPM `grit-parser` package.
 
 Project repository: <https://github.com/pcanz/grammar-parser>
 
+##  Usage
+
+**Node.js**
+
+        npm install grit-parser
+
+        const grit = require("grit-parser");
+
+Or use a copy of the: `grit-parser.js` file from: <https://github.com/pcanz/grammar-parser> 
+
+        const grit = require("./grit-parser.js");
+
+**Browser:**
+
+Load a copy of the: `grit-parser.js` file from: <https://github.com/pcanz/grammar-parser>
+
+After it is loaded the bowser window global: `grit` is assigned the constructor function.
+
+**Using grit:**
+
+The `grit` constructor function is best used as a JavaScript template literal tag:
+
+        const my_grammar = grit` .... grammar rules .... `;
+
+But it can also be used as a regular function:
+
+        const my_grammar = grit(" ... grammar rules ... ");
+
+Or better (to avoid the need to escape back-slash characters):
+
+        const my_grammar = grit( String.raw` ... grammar rules ... ` );
+
+**Action functions**
+
+Can be defined as:
+
+        my_grammar.actions = {
+            rule_action: ... JS function ... ,
+            another: ...
+        }
+
+Or as a second argument to the `grit` function:
+
+        const my_grammar = grit(" ... grammar rules ... ", { ... action functions ... });
+
+**Parse Functions:**
+
+        const my_grammar = grit` .... grammar rules .... `;
+
+        var parse_tree = my_grammar.parse(" ... input ...");
+
+The `parse` method will throw an exception if the parse fails for any reason.
+
+The `match` method is the same as the `parse` method, but it will return a null result if the grammar does not match the input.
+
+        var parse_tree = my_grammar.match(" ... input ...");
+
+
 
 ##  PEG Rules
 
@@ -380,6 +438,7 @@ Here is the full grit grammar grammar:
 	}
 	code.language-eg { display:block; background:whitesmoke; margin:0pt 10pt;}
 </style>
+
 
 
 
