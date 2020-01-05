@@ -1,6 +1,6 @@
 #   Grit Tutorial
 
-In english we say: "Tom", or "Tom and Dick" or "Tom, Dick and Harry". We do not say: "Tom and Dick, Harry", or "Tom, Dick". The grammar rules can be defined something like this:
+In English we say: "Tom", or "Tom and Dick" or "Tom, Dick and Harry". We do not say: "Tom and Dick, Harry", or "Tom, Dick". The grammar rules can be defined something like this:
 
 1. A name (e.g. "Tom").
 2. Or, a name, followed by "and", then another name.
