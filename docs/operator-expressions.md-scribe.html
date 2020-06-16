@@ -1,3 +1,23 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta lang=en charset="UTF-8">
+<style>
+body {
+    font-family: 'Helvetica Neue', Helvetica, Arial, serif;
+    font-size: 1em; line-height: 1.5; color: #505050;
+}
+.code { background: whitesmoke; margin:0pt 10pt;}
+blockquote {border-left: solid thick gainsboro; padding-left:5pt;}
+h1,h2,h3,h4 {border-bottom: thin solid gainsboro; }
+.key-val { margin:0px; }
+.key-val-blk { margin:0px; margin-left:20pt; }
+[data-tight='false'] > li {margin-bottom:12pt;}
+q { quotes: "“" "”" "‘" "’"; }
+
+</style>
+<script>
+// grit-parser loads itself into: window.grit_parser
 // Grammar Parser -- an evolution of Grit.
 
 // See docs at: https://github.com/pcanz/grammar-parser
@@ -818,3 +838,484 @@ return this || (typeof window !== 'undefined' ? window : global);
 }()); // outer funtion name-space wrapper
     
     
+</script>
+<script>
+    // window.gritbox -- global variable for gritbox HTML events to use.
+    // expects grit-prser in: window.grit_parser, see below (line 33)....
+    if (window.gritbox) throw new Error("Browser window.gritbox already in use? ...");
+    window.gritbox = {};
+    var gritbox = window.gritbox
+
+    gritbox.RESET = (i) => {
+	    var src = gritbox.textarea_src(i)
+        var example = gritbox.example(i, 0)
+	    src.value = example.value
+	    gritbox.RUN(i);
+    }
+    gritbox.RUN = (i) => {
+        var src = gritbox.textarea_src(i)
+        var dst = gritbox.textarea_dst(i)
+        var res = "";
+        try {
+            var verbs = {
+                grit: window.grit_parser, // See above...
+                operex: window.operex,
+                write: (txt) => res += JSON.stringify(txt)+"\n",
+                print: (txt) => res += JSON.stringify(txt, null, 2),
+                nl: () => res += "\n"
+            }
+            var keys = Object.keys(verbs);
+            var vals = keys.map((k)=> verbs[k])
+            var fn = new Function(...keys, src.value)
+            fn(...vals);
+        } catch(err) {
+            res = err
+        }
+        dst.value = res;
+    }
+    gritbox.SELECT = (i) => {
+        var x = document.getElementById("gritbox-select-"+i).value;
+        var example = gritbox.example(i, x-1)
+        var src = gritbox.textarea_src(i)
+        src.value = example.value
+        gritbox.RUN(i);
+    }
+    gritbox.textarea_src = (i) => document.getElementById('gritbox-src-'+i);
+    gritbox.textarea_dst = (i) => document.getElementById('gritbox-dst-'+i);
+    gritbox.example = (i, n) => document.getElementById('gritbox-eg-'+i+'-'+n);
+</script>
+<style>
+textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
+</style>
+
+</head>
+<body>
+<h1>Operator Expression Parsing</h1>
+<p>An operator expression can be any kind of symbolic expression with operators and operands. Arithmetic expressions make good examples, but in other applications the operators and operands can be used to represent almost anything. 
+</p>
+<p>The objective is to parse an operator expressions into a parse tree data structure, also known as an AST (Abstract Syntax Tree).
+</p>
+<h2>Baisc Concepts</h2>
+<p>Parsing an operator expression boils down to adding parentheses correctly around associated operators and operands. An initial expression need not have any parentheses, but after it is parsed it will have a full set of parentheses.
+</p>
+<p>It might seem logical to simply add parentheses from left to right:
+</p>
+<pre class="code"><code>    1+2*3   ==>   ((1+2)*3)   ==>  9</code></pre>
+<p>But by convention multiplication has a higher <em>precedence</em> than addition:
+</p>
+<pre class="code"><code>    1+2*3   ==>   (1+(2*3))  ==>  7</code></pre>
+<p>Operators with the same precedence usually <em>associate</em> from left to right:
+</p>
+<pre class="code"><code>    10-4-3-2  ==>  (((10-4)-3)-2)  ==>  1       Not:  (10-(4-(3-2)))  ==> 7</code></pre>
+<p>But there are exceptions, exponents associate from right to left:
+</p>
+<pre class="code"><code>    2**3**4   ==>  (2**(3**4))  ==>  2**81      Not: ((2**3)**4)  ==> 2**12      </code></pre>
+<p>To parse an operator expression the parser needs to know the operators <em>precedence</em> and <em>associativity</em>.
+</p>
+<h2>Operator Notation</h2>
+<p>We will borrow the notation for operator precedence and associativity used in <a href='https://www.swi-prolog.org/pldoc/man?section=operators'>Prolog</a>.
+</p>
+
+<p>The notation <code>yfx</code> represents an infix operator that associates to the left, and <code>xfy</code> for an infix operator that associates to the right. An <code>xfx</code> operator does not associate to the left or the right (only one of these operators is expected in an un-bracketed expression).
+</p>
+<p>The notation reads like a picture, the <code>f</code> is the operator and the <code>x</code> or <code>y</code> are the expression on the left or right of the operator. The <code>y</code> indicates that the operator can associate in this position. In other words, several operators with equal or higher precedence may appear in the expression in the <code>y</code> position, but only operators with strictly higher precedence can appear in the <code>x</code> position.
+</p>
+<p>An <code>fy</code> or <code>fx</code> are prefix operators, and <code>xf</code> or <code>yf</code> are suffix operators. There are seven possible operator signatures:
+</p>
+<pre class="code"><code>fx  fy   xfx xfy yfx   yf  xf</code></pre>
+<p>For example, basic arithmetic operators can be defined like this, in order of precedence, high to low:
+</p>
+<pre class="code"><code>xfy   **     highest precedence, associates to the right.
+yfx   *      associates to the left.
+yfx   + 
+xfx   =      lowest precedence, will not associate left or right.
+</code></pre>
+<p>Given these definitions this expression will parse like this:
+</p>
+<pre class="code"><code>x = a+(b*c)**2   ==>   (x=(a+((b*c)**2)))</code></pre>
+<p>With these definitions the <q><code>=</code></q> operator does not associate to the left or the right, so there can not be two <q><code>=</code></q> operators in an expression. In programming languages where <q><code>=</code></q> is an assignment operator it may be defined as <code>xfy</code> to allow it to associate to the right.
+</p>
+<p>There may be several operators with the same signature and precedence, and the same operator symbol may be defined with more than one signature. In arithmetic a <q><code>+</code></q> operator may be defined as a <code>fy</code> prefix operator as well as a <code>yfx</code> infix operator.
+</p>
+<p>Here is a larger example with operators in five precedence levels:
+</p>
+<pre class="code"><code>fy    +  -
+xfy   ** 
+yfx   *  /  //  div  rdiv  &lt;&lt;  >>  mod  rem
+yfx   +  -  /\  \/  xor 
+xfx   &lt;  =  =&lt;  ==  =\=  >  >=  \=  \==  as  is  </code></pre>
+<p>The prefix operators at the top have high precedence and bind their operands tightly, the comparison operators at the bottom have low precedence and bind loosely over larger operand expressions.
+</p>
+<p>For example:
+</p>
+<pre class="code"><code>a+b*c >= d**2  ==>  ((a+(b*c))>=(d**2))</code></pre>
+<p>The compare operators have an <code>xfx</code> signature, so they can not associate. An expression such as: <code>x > y > z</code> makes no sense (except in Python and Julia where it it is interpreted to mean: <code>x > y and y > z</code>).
+</p>
+<h2>Grammar Rules</h2>
+<p>Here is a bare minimum grammar to match input operator expressions:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(1)' >Example 1</button>
+    <button onClick='gritbox.RUN(1)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-1' style="width:49%" rows=7>const expr = grit`
+    expr   = term (op term)*
+    op     = "+" / "-" / "*" / "/"
+    term   = \w+
+`;
+
+write(expr.parse("1+2*3"));</textarea>
+  <textarea id='gritbox-dst-1' style="width:49%" rows=7></textarea>
+  
+      <textarea id='gritbox-eg-1-0' hidden>const expr = grit`
+    expr   = term (op term)*
+    op     = "+" / "-" / "*" / "/"
+    term   = \w+
+`;
+
+write(expr.parse("1+2*3"));</textarea>
+  <script>gritbox.RUN(1)</script><br>
+
+
+<p>This grammar takes no account of precedence or association, it simply matches a sequence of terms and operators. 
+</p>
+<p>To take account of precedence the operators can be split into separate grammar rules, one for each precedence level:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(2)' >Example 2</button>
+    <button onClick='gritbox.RUN(2)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-2' style="width:49%" rows=9>const expr = grit`
+    add    = mult (op2 mult)*
+    mult   = term (op1 term)*
+    op1    = "*" / "/"
+    op2    = "+" / "-"
+    term   = \w+
+`;
+
+write(expr.parse("1+2*3"));</textarea>
+  <textarea id='gritbox-dst-2' style="width:49%" rows=9></textarea>
+  
+      <textarea id='gritbox-eg-2-0' hidden>const expr = grit`
+    add    = mult (op2 mult)*
+    mult   = term (op1 term)*
+    op1    = "*" / "/"
+    op2    = "+" / "-"
+    term   = \w+
+`;
+
+write(expr.parse("1+2*3"));</textarea>
+  <script>gritbox.RUN(2)</script><br>
+
+<p>The <code>mult</code> rule will match the <code>*</code> or <code>/</code> operator with its operands before the <code>add</code> rule matches the <code>+</code> or <code>-</code> operators with their operands. In other words the the <code>op1</code> operators have higher precedence and bind tighter than the <code>op2</code> operators.
+</p>
+<p>There is no left (or right) association between operators of the same precedence, the grammar matches the input into a flat list of operators and operands. The parse tree resulting from this grammar directly reflects the input format (pattern matching).
+</p>
+<p>For a <code>yfx</code> left associative operator we want the parse tree to group the terms so that they are nested on the left. The traditional approach is to to use left recursion in the grammar rules, instead of this we are going to use a semantic action function. This allows us to keep the grammar rules as simple input pattern matching recognizer rules.
+</p>
+<p>An action functions can be used to process the rule results into a nice AST with a left associative nested tree structure.
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(3)' >Example 3</button>
+    <button onClick='gritbox.RUN(3)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-3' style="width:49%" rows=14>const expr = grit`
+    add    = mult (op2 mult)*  : yfx
+    mult   = term (op1 term)*  : yfx
+    op1    = "*" / "/"
+    op2    = "+" / "-"
+    term   = \w+
+`;
+
+expr.actions = {
+    yfx: ([x,xs]) => xs.reduce(
+            (t,[op,y]) => [op,t,y], x),
+}
+
+write(expr.parse("1+2*3"));</textarea>
+  <textarea id='gritbox-dst-3' style="width:49%" rows=14></textarea>
+  
+      <textarea id='gritbox-eg-3-0' hidden>const expr = grit`
+    add    = mult (op2 mult)*  : yfx
+    mult   = term (op1 term)*  : yfx
+    op1    = "*" / "/"
+    op2    = "+" / "-"
+    term   = \w+
+`;
+
+expr.actions = {
+    yfx: ([x,xs]) => xs.reduce(
+            (t,[op,y]) => [op,t,y], x),
+}
+
+write(expr.parse("1+2*3"));</textarea>
+  <script>gritbox.RUN(3)</script><br>
+
+<p>The action function has been called <code>yfx</code> for obvious reasons, and it can be implemented with a standard list reduce function. It produces an AST with nodes in operator prefix format:
+</p>
+<pre class="code"><code>                          +
+                         / \
+    (+,1,(*,2,3)) &lt;==>  1   *
+                           / \
+                          2   3</code></pre>
+<p>Adding more operators into this two level precedence grammar is simple:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(4)' >Example 4</button>
+    <button onClick='gritbox.RUN(4)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-4' style="width:49%" rows=14>const expr = grit`
+    expr   = fact (op2 fact)*  : yfx
+    fact   = term (op1 term)*  : yfx
+    op1    = "*" / "/" /"<<"/">>"/"mod"/"rem"
+    op2    = "+" / "-" /"and"/"or"/"xor"
+    term   = \w+
+`;
+
+expr.actions = {
+    yfx: ([x,xs]) => xs.reduce(
+            (t,[op,y]) => [op,t,y], x)
+}
+
+write(expr.parse("1+2*3 mod 4+5"));</textarea>
+  <textarea id='gritbox-dst-4' style="width:49%" rows=14></textarea>
+  
+      <textarea id='gritbox-eg-4-0' hidden>const expr = grit`
+    expr   = fact (op2 fact)*  : yfx
+    fact   = term (op1 term)*  : yfx
+    op1    = "*" / "/" /"<<"/">>"/"mod"/"rem"
+    op2    = "+" / "-" /"and"/"or"/"xor"
+    term   = \w+
+`;
+
+expr.actions = {
+    yfx: ([x,xs]) => xs.reduce(
+            (t,[op,y]) => [op,t,y], x)
+}
+
+write(expr.parse("1+2*3 mod 4+5"));</textarea>
+  <script>gritbox.RUN(4)</script><br>
+
+<p>Adding extra precedence levels or new operator signatures requires extra rules. The pattern of grammar rules corresponding to operator precedence levels should be apparent:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(5)' >Example 5</button>
+    <button onClick='gritbox.RUN(5)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-5' style="width:49%" rows=26>const expr = grit`
+    expr   = exp3 (op4 exp3)*  : xfy
+    exp3   = exp2 (op3 exp2)*  : yfx
+    exp2   = exp1 (op2 exp1)*  : yfx
+    exp1   = term (op1 term)*  : xfy
+    op1    = "^"
+    op2    = "*" / "/" /"<<"/">>"/"mod"/"rem"
+    op3    = "+" / "-" /"and"/"or"/"xor"
+    op4    = "=" / "\=" / "<"/"<="/">"/">="
+    term   = atom / group
+    group  = "(" expr ")"
+    atom   = \s*(\w+)
+`;
+expr.actions = {
+    yfx: ([x, ys]) => ys.reduce(
+        (y, [op, z]) => [op,y,z], x),
+
+    xfy: function xfy([x, ys]) {
+        if (!ys || ys.length < 1) return x;
+        let [[op,y], ...zs] = ys;
+        return [op, x, xfy([y,zs])];
+    },
+    group: ([_,expr]) =>  expr
+}
+
+write(expr.parse("x = (y mod z)^2 + 4"));</textarea>
+  <textarea id='gritbox-dst-5' style="width:49%" rows=26></textarea>
+  
+      <textarea id='gritbox-eg-5-0' hidden>const expr = grit`
+    expr   = exp3 (op4 exp3)*  : xfy
+    exp3   = exp2 (op3 exp2)*  : yfx
+    exp2   = exp1 (op2 exp1)*  : yfx
+    exp1   = term (op1 term)*  : xfy
+    op1    = "^"
+    op2    = "*" / "/" /"<<"/">>"/"mod"/"rem"
+    op3    = "+" / "-" /"and"/"or"/"xor"
+    op4    = "=" / "\=" / "<"/"<="/">"/">="
+    term   = atom / group
+    group  = "(" expr ")"
+    atom   = \s*(\w+)
+`;
+expr.actions = {
+    yfx: ([x, ys]) => ys.reduce(
+        (y, [op, z]) => [op,y,z], x),
+
+    xfy: function xfy([x, ys]) {
+        if (!ys || ys.length < 1) return x;
+        let [[op,y], ...zs] = ys;
+        return [op, x, xfy([y,zs])];
+    },
+    group: ([_,expr]) =>  expr
+}
+
+write(expr.parse("x = (y mod z)^2 + 4"));</textarea>
+  <script>gritbox.RUN(5)</script><br>
+
+<p>These four precedence levels could have been given names, such as: <code>exponential</code>, <code>multiplicative</code>, <code>additive</code>, and <code>comparative</code>. But it is only the order of precedence between operators that really matters.
+</p>
+<p>The <code>xfy</code> right associate operators require a slightly more complicated action function.
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(6)' >Example 6</button>
+    <button onClick='gritbox.RUN(6)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-6' style="width:49%" rows=28>const expr = grit`
+    expr   = exp3 (op4 exp3)*      : xfy
+    exp3   = exp2 (op3 exp2)*      : yfx
+    exp2   = exp1 (op2 exp1)*      : yfx
+    exp1   = exp0 (op1 exp0)*      : xfy
+    exp0   = op0 exp0 / term
+    op0    = '+' / '-' / '!' / '~'
+    op1    = "^"
+    op2    = "*" / "/" /"<<"/">>"/"mod"/"rem"
+    op3    = "+" / "-" /"and"/"or"/"xor"
+    op4    = "=" / "\=" / "<"/"<="/">"/">="
+    term   = atom / group
+    group  = "(" expr ")"
+    atom   = \s*(\w+)
+`;
+expr.actions = {
+    yfx: ([x, ys]) => ys.reduce(
+        (y, [op, z]) => [op,y,z], x),
+
+    xfy: function xfy([x, ys]) {
+        if (!ys || ys.length < 1) return x;
+        let [[op,y], ...zs] = ys;
+        return [op, x, xfy([y,zs])];
+    },
+    group: ([_,expr]) =>  expr
+}
+
+write(expr.parse("x = (y mod z)^2 + 4"));</textarea>
+  <textarea id='gritbox-dst-6' style="width:49%" rows=28></textarea>
+  
+      <textarea id='gritbox-eg-6-0' hidden>const expr = grit`
+    expr   = exp3 (op4 exp3)*      : xfy
+    exp3   = exp2 (op3 exp2)*      : yfx
+    exp2   = exp1 (op2 exp1)*      : yfx
+    exp1   = exp0 (op1 exp0)*      : xfy
+    exp0   = op0 exp0 / term
+    op0    = '+' / '-' / '!' / '~'
+    op1    = "^"
+    op2    = "*" / "/" /"<<"/">>"/"mod"/"rem"
+    op3    = "+" / "-" /"and"/"or"/"xor"
+    op4    = "=" / "\=" / "<"/"<="/">"/">="
+    term   = atom / group
+    group  = "(" expr ")"
+    atom   = \s*(\w+)
+`;
+expr.actions = {
+    yfx: ([x, ys]) => ys.reduce(
+        (y, [op, z]) => [op,y,z], x),
+
+    xfy: function xfy([x, ys]) {
+        if (!ys || ys.length < 1) return x;
+        let [[op,y], ...zs] = ys;
+        return [op, x, xfy([y,zs])];
+    },
+    group: ([_,expr]) =>  expr
+}
+
+write(expr.parse("x = (y mod z)^2 + 4"));</textarea>
+  <script>gritbox.RUN(6)</script><br>
+
+<p>It is not necessary to have a large number of precedence levels, most users will only be able to remember a small number. It is considered good practice to use explicit parentheses to make the precedence clear.
+</p>
+<p>Operator precedence levels provide a convenient short-hand to avoid parentheses, but they are not essential. APL, Smalltalk, and Lisp, are examples of programming languages that do without any operator precedence levels.
+</p>
+<p>However, general purpose programming languages can define quite a large number of different precedence levels (C defined 15, JavaScript has more than 20). In that case having a grammar rule for each precedence level becomes unwieldy, and a special purpose parser may be a better option.
+</p>
+<h2>Operator Expression Parser</h2>
+<p>Grit provides a special purpose parser for operator expressions. This is an <code>operators</code> function that takes a list of operator definitions and returns an action function that can transform the tokens of an operator expression into a prefix format parse tree.
+</p>
+<p>This allows the previous example to be written like this:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(7)' >Example 7</button>
+    <button onClick='gritbox.RUN(7)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-7' style="width:49%" rows=18>const expr = grit`
+    expr   = term*
+    term   = atom / group
+    group  = "(" expr ")"
+    atom   = \s*(\w+|[=*/\\~^<>:.?@#$&+-]+)
+`;
+expr.actions = {
+    expr: grit.operators(
+        ["fy", "+", "-", "!", "~"],
+        ["xfy", "^"],
+        ["yfx", "*","/","<<",">>","mod","rem"],
+        ["yfx", "+","-","and","or","xor"],
+        ["xfx", "=" ,"\=","<","<=",">",">="] 
+    ),
+    group: ([_,expr]) => ["()", expr, null]
+};
+
+write(expr.parse("x = (y mod 12)^2 + 4"));</textarea>
+  <textarea id='gritbox-dst-7' style="width:49%" rows=18></textarea>
+  
+      <textarea id='gritbox-eg-7-0' hidden>const expr = grit`
+    expr   = term*
+    term   = atom / group
+    group  = "(" expr ")"
+    atom   = \s*(\w+|[=*/\\~^<>:.?@#$&+-]+)
+`;
+expr.actions = {
+    expr: grit.operators(
+        ["fy", "+", "-", "!", "~"],
+        ["xfy", "^"],
+        ["yfx", "*","/","<<",">>","mod","rem"],
+        ["yfx", "+","-","and","or","xor"],
+        ["xfx", "=" ,"\=","<","<=",">",">="] 
+    ),
+    group: ([_,expr]) => ["()", expr, null]
+};
+
+write(expr.parse("x = (y mod 12)^2 + 4"));</textarea>
+  <script>gritbox.RUN(7)</script><br>
+
+<p>The <code>expr</code> grammar rule parses an input operator expression into a flat list of <code>term</code> tokens. The action function for the <code>expr</code> rule transforms the token list into a parse tree with an operator prefix format. The action function is generated by the <code>grit.operators</code> function, given a list of operator definitions.
+</p>
+<p>Notice that the operator expression parser is entirely controlled by the list of operator definitions. The operators are ordered from highest to lowest precedence. This action function takes a list of operator and operand tokens and incrementally builds a parse tree, using a technique inspired by the <a href='https://en.wikipedia.org/wiki/Pratt_parser'>Pratt</a> parser algorithm.
+</p>
+
+<p>In this example the grammar rules themselves are only being used as a <q>lexer</q> to generate a token (<code>term</code>) list. A more realistic example is likely to have more grammar rules for the tokens (e.g. to skip comments, and to parse literal objects).  There could also be higher level grammar rules for language features that contain operator expressions as component parts.
+</p>
+<p>The parse tree nodes are arrays with the format: <code>[op, left, right]</code> (the <code>left</code> and <code>right</code> values can be sub-trees or operand values). To build the tree incrementally the parser must be able to distinguish a tree node from a leaf element operand value.  The operand values are usually a string or number, but they may be any data type. If an operand value is an array type then it could be confused with a tree node. To avoid any confusion the operand value can be wrapped into a node with a <code>nop</code> operator (a do nothing identity function).
+</p>
+<p>Explicit parentheses in the source expression will be parsed as nested expression sub-trees, but these sub-trees must be seen as leaf elements (operands) in the larger AST. For this reason the <code>group</code> action function adds an extra array wrapper around the sub-tree to ensure that it will be seen as an leaf node (the <code>()</code> operator symbol acts as a <code>nop</code>).
+</p>
+<p>The <code>grit.operators</code> parser makes it easy to handle a large number of operators with a large number of precedence levels. It also enables new operators to be easily defined. A programming language may even allow operators to be dynamically defined, as is done in Prolog.
+</p>
+<h2>Conclusion</h2>
+<p>Operator expressions can be used for a wide variety of applications, as special purpose notations, or the basis of a DSL (Domain Specific Language).
+</p>
+<p>The Grit parser offers two ways to implement operator expression parsing. A direct grammar rule implementation works well for a small number of operator precedence levels. But for a large number of precedence levels a special purpose <code>grit.operator</code> function can be used (to generate a grammar rule action function).
+</p>
+<p>A parser for any operator expression can be fully defined by a list of operator specifications, ordered by precedence. 
+</p>
+<p>A significant part of the syntax of many programming language can be defined in terms of operator expressions. In some cases almost the complete language can be defined as an operator expression. The Prolog language is a good example.
+</p>
+</body>
+</html>

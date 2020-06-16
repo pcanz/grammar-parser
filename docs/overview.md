@@ -45,6 +45,7 @@ var date_match = date.exec("2013-04-05")
 
 write(date_match)
 ```
+ 
 The `date` grammar rule matches a sequence of five components. Three named components (year, month, day) separated by two literal "-" dash components. The white space in the rule separates the component parts, but is otherwise insignificant.
 
 The `year`, `month` and `day` rules are defined using standard regular expressions. As usual, the `\d` represents a digit character `[0-9]`, and `\d{4}` matches four digits.

@@ -1,3 +1,23 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta lang=en charset="UTF-8">
+<style>
+body {
+    font-family: 'Helvetica Neue', Helvetica, Arial, serif;
+    font-size: 1em; line-height: 1.5; color: #505050;
+}
+.code { background: whitesmoke; margin:0pt 10pt;}
+blockquote {border-left: solid thick gainsboro; padding-left:5pt;}
+h1,h2,h3,h4 {border-bottom: thin solid gainsboro; }
+.key-val { margin:0px; }
+.key-val-blk { margin:0px; margin-left:20pt; }
+[data-tight='false'] > li {margin-bottom:12pt;}
+q { quotes: "“" "”" "‘" "’"; }
+
+</style>
+<script>
+// grit-parser loads itself into: window.grit_parser
 // Grammar Parser -- an evolution of Grit.
 
 // See docs at: https://github.com/pcanz/grammar-parser
@@ -818,3 +838,454 @@ return this || (typeof window !== 'undefined' ? window : global);
 }()); // outer funtion name-space wrapper
     
     
+</script>
+<script>
+    // window.gritbox -- global variable for gritbox HTML events to use.
+    // expects grit-prser in: window.grit_parser, see below (line 33)....
+    if (window.gritbox) throw new Error("Browser window.gritbox already in use? ...");
+    window.gritbox = {};
+    var gritbox = window.gritbox
+
+    gritbox.RESET = (i) => {
+	    var src = gritbox.textarea_src(i)
+        var example = gritbox.example(i, 0)
+	    src.value = example.value
+	    gritbox.RUN(i);
+    }
+    gritbox.RUN = (i) => {
+        var src = gritbox.textarea_src(i)
+        var dst = gritbox.textarea_dst(i)
+        var res = "";
+        try {
+            var verbs = {
+                grit: window.grit_parser, // See above...
+                operex: window.operex,
+                write: (txt) => res += JSON.stringify(txt)+"\n",
+                print: (txt) => res += JSON.stringify(txt, null, 2),
+                nl: () => res += "\n"
+            }
+            var keys = Object.keys(verbs);
+            var vals = keys.map((k)=> verbs[k])
+            var fn = new Function(...keys, src.value)
+            fn(...vals);
+        } catch(err) {
+            res = err
+        }
+        dst.value = res;
+    }
+    gritbox.SELECT = (i) => {
+        var x = document.getElementById("gritbox-select-"+i).value;
+        var example = gritbox.example(i, x-1)
+        var src = gritbox.textarea_src(i)
+        src.value = example.value
+        gritbox.RUN(i);
+    }
+    gritbox.textarea_src = (i) => document.getElementById('gritbox-src-'+i);
+    gritbox.textarea_dst = (i) => document.getElementById('gritbox-dst-'+i);
+    gritbox.example = (i, n) => document.getElementById('gritbox-eg-'+i+'-'+n);
+</script>
+<style>
+textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
+</style>
+
+</head>
+<body>
+<h1>Extending The Grammar</h1>
+<p>Most computer languages and data formats can be parsed with Grit grammar rules, but there are a few exceptions that may require the grammar to be extended.  A grammar rule extension can be implemented with an action function.
+</p>
+<p>Action functions allow the full power of the host programming language to be used to extend the grammar rules. This is an escape-hatch that needs to used carefully, but sometimes it is the only way to get the job done.
+</p>
+<h2>Matching The Same Again</h2>
+<p>Consider for example a quoted string format that allows <em>any</em> number of quote marks at the start matched by the <em>same</em> number at the end. This format has the advantage that it can quote text that contains any number of quote marks. If there is a sequence of N quote marks in the content, then the outer quotes can use N+1 quote marks.
+</p>
+<p>If only a small number of different quote marks are needed then we could write a grammar with a separate rule to match a single quote mark, two quote marks, three, four, and so on. This obviously becomes impractical for more than a small number of rules.
+</p>
+<p>If the regular expression package supports <code>\1</code> to mean match the same text as the first capture group, then this regular expression will do the trick:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(1)' >Example 1</button>
+    <button onClick='gritbox.RUN(1)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-1' style="width:49%" rows=10>const raw = grit`
+    raw = ^('+)(.*?)\1
+`;
+raw.actions = {
+    raw: ([_,x]) => x
+}
+
+const test = `'''xx ''y'' zz'''`;
+
+write(raw.parse(test));</textarea>
+  <textarea id='gritbox-dst-1' style="width:49%" rows=10></textarea>
+  
+      <textarea id='gritbox-eg-1-0' hidden>const raw = grit`
+    raw = ^('+)(.*?)\1
+`;
+raw.actions = {
+    raw: ([_,x]) => x
+}
+
+const test = `'''xx ''y'' zz'''`;
+
+write(raw.parse(test));</textarea>
+  <script>gritbox.RUN(1)</script><br>
+
+<p>Not all regular expression packages have been extended to include this feature. Technically it is is not a regular expression anymore, and there are good reasons why it may be best to avoid this regex feature <a href='https://swtch.com/~rsc/regexp/regexp1.html'>Cox</a>.
+</p>
+
+<p>Grammar rules with action functions can be used to do the same thing:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(2)' >Example 2</button>
+    <button onClick='gritbox.RUN(2)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-2' style="width:49%" rows=16>const raw = grit`
+    raw = q1 chs* q2
+    chs = !q2 [']*[^']*
+    q1  = [']+  : save
+    q2  = [']+  : match
+`;
+raw.actions = {
+    raw: ([_,x]) => x.join(''),
+    chs: ([_,x]) => x,
+    save: (x) => raw.quotes = x,
+    match: (x) => x == raw.quotes || null
+}
+
+const test = `'''xx ''y'' zz'''`;
+
+write(raw.parse(test));</textarea>
+  <textarea id='gritbox-dst-2' style="width:49%" rows=16></textarea>
+  
+      <textarea id='gritbox-eg-2-0' hidden>const raw = grit`
+    raw = q1 chs* q2
+    chs = !q2 [']*[^']*
+    q1  = [']+  : save
+    q2  = [']+  : match
+`;
+raw.actions = {
+    raw: ([_,x]) => x.join(''),
+    chs: ([_,x]) => x,
+    save: (x) => raw.quotes = x,
+    match: (x) => x == raw.quotes || null
+}
+
+const test = `'''xx ''y'' zz'''`;
+
+write(raw.parse(test));</textarea>
+  <script>gritbox.RUN(2)</script><br>
+
+<p>The <code>q1</code> and <code>q2</code> are the outer quote marks, which must be the same. The <code>save</code> function records the <code>q1</code> open quote marks, and the <code>match</code> function checks that <code>q2</code> is the same as <code>q1</code>. A <code>null</code> result from <code>match</code> action function will cause the <code>q2</code> rule to fail.
+</p>
+<p>The text between the outer quote marks can contain anything except the <code>q2</code> end quote, so any characters that do not contain a quote mark, or any sequence of quote marks that do not match <code>q2</code> can be accepted.
+</p>
+<p>It is a good convention to give the <code>save</code> and <code>mark</code> functions meaningful names that are explicit in the grammar rules. This will help readers to spot the fact that these grammar rules depend on their action functions.
+</p>
+<h2>XML Tag Matching</h2>
+<p>XML (and HTML) can not be fully specified with a context-free grammar. Matching the start and end tag names requires a context-sensitive grammar.
+</p>
+<p>However, a context-free grammar can be used for the XML syntax without the tag match check. Verification that the tag names match can be done separately after the parser has matched the nested element structure.
+</p>
+<p>Here is the essence of the XML element grammar:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(3)' >Example 3</button>
+    <button onClick='gritbox.RUN(3)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-3' style="width:49%" rows=10>const html = grit`
+    element = '<' tag '>' content '</' tag '>'
+    content = (element / text)*
+    tag     = \w+
+    text    = [^<]*
+`;
+
+const test = `<i>xx<b>yy</b>zz</i>`;
+
+write( html.parse(test) );</textarea>
+  <textarea id='gritbox-dst-3' style="width:49%" rows=10></textarea>
+  
+      <textarea id='gritbox-eg-3-0' hidden>const html = grit`
+    element = '<' tag '>' content '</' tag '>'
+    content = (element / text)*
+    tag     = \w+
+    text    = [^<]*
+`;
+
+const test = `<i>xx<b>yy</b>zz</i>`;
+
+write( html.parse(test) );</textarea>
+  <script>gritbox.RUN(3)</script><br>
+
+<p>The example shows correctly matching tags, but this grammar will match any tag names.
+</p>
+<p>An extended regex with back matching can not be used here because the <code>content</code> between the tags can contain nested elements, and a regular expression can not handle that.
+</p>
+<p>Action functions can be added to the grammar to ensure that the tags match:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(4)' >Example 4</button>
+    <button onClick='gritbox.RUN(4)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-4' style="width:49%" rows=20>const html = grit`
+    element = '<' tag1 '>' content '</' tag2 '>'
+    content = (element / text)*
+    tag1    = \w+  : save
+    tag2    = \w+  : match
+    text    = [^<]*
+`;
+
+html.tags = [];
+
+html.actions = {
+    save: (tag) => 
+        html.tags.push(tag),
+    match: (tag) => 
+        html.tags.pop() == tag || null
+}
+
+const test = `<i>xx<b>yy</i>zz</b>`;
+
+write( html.parse(test) );</textarea>
+  <textarea id='gritbox-dst-4' style="width:49%" rows=20></textarea>
+  
+      <textarea id='gritbox-eg-4-0' hidden>const html = grit`
+    element = '<' tag1 '>' content '</' tag2 '>'
+    content = (element / text)*
+    tag1    = \w+  : save
+    tag2    = \w+  : match
+    text    = [^<]*
+`;
+
+html.tags = [];
+
+html.actions = {
+    save: (tag) => 
+        html.tags.push(tag),
+    match: (tag) => 
+        html.tags.pop() == tag || null
+}
+
+const test = `<i>xx<b>yy</i>zz</b>`;
+
+write( html.parse(test) );</textarea>
+  <script>gritbox.RUN(4)</script><br>
+
+<p>The tags need to be pushed onto a stack to allow the content to contain nested elements.
+</p>
+<h2>Nested Indentation</h2>
+<p>Nested indentation syntax, as used in Python, has a block structure based on lines with the same inset. The inset on the first line in a block can be any number of space characters, and subsequent lines in the same block must be inset with the same number of space characters. 
+</p>
+<p>For example:
+</p>
+<pre class="code"><code>if x:
+    if y:
+        print("x & y")
+    if z:
+        print("x & z")
+print("x done...")</code></pre>
+<p>A sketch for the grammar of this block structure:
+</p>
+<pre class="code"><code>block  = indent line inlay* undent
+inlay  = body / block
+body   = inset line</code></pre>
+<p>The first line of a block can have any <code>indent</code>, and subsequent lines in the block must have the same <code>inset</code>. A block nested inside an outer block must have a larger <code>inset</code>. In other words:
+</p>
+<pre class="code"><code>indent > parent.indent
+inset = parent.indent </code></pre>
+<p>These constraints can be enforced in action functions:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(5)' >Example 5</button>
+    <button onClick='gritbox.RUN(5)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-5' style="width:49%" rows=39>const nest = grit`
+    block  = indent line inlay* undent
+    inlay  = body / block
+    body   = inset line
+    indent = [ ]* : push
+    inset  = [ ]* : match
+    undent = ''   : pop
+    line   = [^\n\r]* nl
+    nl     = \n|\r\n?|$
+`;
+
+nest.inset = -1;
+nest.stack = [];
+
+nest.actions = {
+    block: ([_,ln,lns]) => [ln,lns],
+    body: ([_,ln]) => ln,
+    push: (x) => 
+        x.length > nest.inset?
+            nest.stack.push(nest.inset) 
+            && (nest.inset = x.length)
+            : null,
+    pop: () => 
+        nest.inset = nest.stack.pop(),
+    match: (x) =>
+        x.length == nest.inset? x : null,
+    line: ([ln,_]) => ln
+};
+
+const test = `
+if x:
+    if y:
+        print("x & y")
+    if z:
+        print("x & z")
+print("x done...")
+`;
+
+print(nest.parse(test));</textarea>
+  <textarea id='gritbox-dst-5' style="width:49%" rows=39></textarea>
+  
+      <textarea id='gritbox-eg-5-0' hidden>const nest = grit`
+    block  = indent line inlay* undent
+    inlay  = body / block
+    body   = inset line
+    indent = [ ]* : push
+    inset  = [ ]* : match
+    undent = ''   : pop
+    line   = [^\n\r]* nl
+    nl     = \n|\r\n?|$
+`;
+
+nest.inset = -1;
+nest.stack = [];
+
+nest.actions = {
+    block: ([_,ln,lns]) => [ln,lns],
+    body: ([_,ln]) => ln,
+    push: (x) => 
+        x.length > nest.inset?
+            nest.stack.push(nest.inset) 
+            && (nest.inset = x.length)
+            : null,
+    pop: () => 
+        nest.inset = nest.stack.pop(),
+    match: (x) =>
+        x.length == nest.inset? x : null,
+    line: ([ln,_]) => ln
+};
+
+const test = `
+if x:
+    if y:
+        print("x & y")
+    if z:
+        print("x & z")
+print("x done...")
+`;
+
+print(nest.parse(test));</textarea>
+  <script>gritbox.RUN(5)</script><br>
+
+<p>The insets could be extended to allow tabs, but trying to mix tabs with spaces should be avoided. 
+</p>
+<h2>Context Sensitive Grammars</h2>
+<p>A classic academic test case that requires a context-sensitive grammar is A<sup>n</sup>B<sup>n</sup>C<sup>n</sup> where the number of As and Bs and Cs must be the same. This is not possible with context-free grammar rules alone, but it is very simple with the help of an action function:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(6)' >Example 6</button>
+    <button onClick='gritbox.RUN(6)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-6' style="width:49%" rows=13>const abc = grit`
+    abc = 'a'+ 'b'+ 'c'+  : all_eq
+`;
+
+abc.actions = {
+    all_eq: ([as,bs,cs]) => 
+        (as.length == bs.length) &&
+        (bs.length == cs.length) || null
+}
+
+const test = `aaabbbccc`;
+
+write( abc.parse(test) );</textarea>
+  <textarea id='gritbox-dst-6' style="width:49%" rows=13></textarea>
+  
+      <textarea id='gritbox-eg-6-0' hidden>const abc = grit`
+    abc = 'a'+ 'b'+ 'c'+  : all_eq
+`;
+
+abc.actions = {
+    all_eq: ([as,bs,cs]) => 
+        (as.length == bs.length) &&
+        (bs.length == cs.length) || null
+}
+
+const test = `aaabbbccc`;
+
+write( abc.parse(test) );</textarea>
+  <script>gritbox.RUN(6)</script><br>
+
+<p>From an academic perspective this is cheating! It is too simple.
+</p>
+<p>The point is that an action function can do anything, so solving the problem this way opens up Pandoras box, any program code could be used to do anything.
+</p>
+<p>However, in practice being able to extend the grammar rules on occasion may be the only practical solution. In this case the grammar rule extension is clear and obvious. 
+</p>
+<p>Formal grammar rules to solve this problem are usually very complex and hard to understand.  
+</p>
+<p>As it happens a PEG grammar can go a little beyond a context-free grammar, so it is possible to specify the A<sup>n</sup>B<sup>n</sup>C<sup>n</sup> grammar, but it not is not a very attractive solution:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(7)' >Example 7</button>
+    <button onClick='gritbox.RUN(7)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-7' style="width:49%" rows=10>const abc = grit`
+    abc = &(A 'c') 'a'+ B end
+    A   = 'a' A? 'b'
+    B   = 'b' B? 'c'
+    end = ![\s\S]
+`;
+
+const test = `aaabbbccc`;
+
+write( abc.parse(test) );</textarea>
+  <textarea id='gritbox-dst-7' style="width:49%" rows=10></textarea>
+  
+      <textarea id='gritbox-eg-7-0' hidden>const abc = grit`
+    abc = &(A 'c') 'a'+ B end
+    A   = 'a' A? 'b'
+    B   = 'b' B? 'c'
+    end = ![\s\S]
+`;
+
+const test = `aaabbbccc`;
+
+write( abc.parse(test) );</textarea>
+  <script>gritbox.RUN(7)</script><br>
+
+<p>The <code>A</code> rule will match an equal number of <code>a</code>&rsquo;s and <code>b</code>&rsquo;s, and the <code>&</code> operator will check that this is true, but it will not consume any input. All the <code>a</code>&rsquo;s can be matched now, and the <code>B</code> rule ensures that the same number of <code>b</code>&rsquo;s and <code>c</code>&rsquo;s are matched.
+</p>
+<p>In general there is no easy way to specify a context-sensitive grammar. Attempts to push grammar rules beyond a context-free grammar have ended up with rules that are very complex and difficult to understand. The <a href='https://www.amazon.ca/Adapting-Babel-Adaptivity-Context-Sensitivity-Parsing/dp/1505652723'>§-calculus</a> is a modern formal grammar system designed to tackle the very difficult problems of context-sensitive languages (Quinn Tyler Jackson, Adapting to Babel, Adaptivity & Context-Sensitivity in Parsing, 2006).
+</p>
+
+<h2>Conclusion</h2>
+<p>Almost all practical computer languages and formats can be specified with a context-free grammar, but there are a few important exceptions that need to be dealt with in practice.
+</p>
+<p>A PEG grammar is simpler than a traditional context-free grammar, but it can specify any unambiguous context-free language (and some context-sensitive grammars). It is deterministic, so it can not handle the syntactic ambiguity that a natural (human) language may require. For computer applications ambiguity is always undesirable and never required, so a PEG grammar is a very neat solution.
+</p>
+<p>The Grit grammar rules are based on PEG logic, and they allow regular expressions to be used directly as components in the grammar rules. This allows the grammar rules to specify an efficient parser for any non-ambiguous context-free language.
+</p>
+<p>Action functions can be used for the exceptions that do not fit into a context-free grammar. They can be used to extend the rules. Action functions allow the full power of the host programing language to be employed, so they are dangerous and could be abused. However, using action functions to cope with awkward grammar features can be kept simple and easy to understand. They are a very practical solution.
+</p>
+
+
+</body>
+</html>

@@ -2,9 +2,15 @@
 
 Grammar rules make great specifications, and now you can use them directly in your program code.
 
-* [Overview] to find out what it's all about.
+* [Introduction] to find out what it's all about.
+
+* [Overview] another introduction.
 
 * [Tutorial] to learn a little more.
+
+* [Grammar Extensions] to go beyond a context-free grammar.
+
+* [Operator Expressions] special parsing.
 
 * [CSV Study] for a practical example.
 
@@ -25,27 +31,18 @@ Grammar rules make great specifications, and now you can use them directly in yo
 * [TOML]
 
 
-
+[Introduction]: https://pcanz.github.io/grammar-parser/regex-gritex.md-scribe.html
 [Overview]: https://pcanz.github.io/grammar-parser/overview.md.html
 [Tutorial]: https://pcanz.github.io/grammar-parser/tutorial.md.html
+[Grammar Extensions]: https://pcanz.github.io/grammar-parser/extending.md-scribe.html
+[Operator Expressions]: https://pcanz.github.io/grammar-parser/operator-expressions.md-scribe.html
 [CSV Study]: https://pcanz.github.io/grammar-parser/cvs.md.html
-[Refence Manual]: https://pcanz.github.io/grammar-parser/reference.md.html
+[Refence Manual]: https://pcanz.github.io/grammar-parser/reference.md-scribe.html
 [URI]: https://pcanz.github.io/grammar-parser/uri.md.html
 [JSON]: https://pcanz.github.io/grammar-parser/json.md.html
 [TOML]: https://pcanz.github.io/grammar-parser/toml.md.html
 [Playpen]: https://pcanz.github.io/grammar-parser/dingus.md.html
 [Project]: https://github.com/pcanz/grammar-parser
 
-
-
-<style type="text/css">
-	body {
-		font-family: 'Helvetica Neue', Helvetica, Arial, serif;
-		font-size: 1em;
-		line-height: 1.5;
-		color: #505050;
-	}
-	code.language-eg { display:block; background:whitesmoke; margin:0pt 10pt;}
-</style>
 
 

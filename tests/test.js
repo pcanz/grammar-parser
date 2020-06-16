@@ -8,6 +8,7 @@ const [node, file, test_id] = process.argv
 
 if (!test_id) {
     test_files.forEach((file,idx) => {
+        console.log("Run tests: "+idx+" file: "+file);
         run_tests(require("./"+file+".js"), idx);
     })
 } else {

@@ -1,3 +1,23 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta lang=en charset="UTF-8">
+<style>
+body {
+    font-family: 'Helvetica Neue', Helvetica, Arial, serif;
+    font-size: 1em; line-height: 1.5; color: #505050;
+}
+.code { background: whitesmoke; margin:0pt 10pt;}
+blockquote {border-left: solid thick gainsboro; padding-left:5pt;}
+h1,h2,h3,h4 {border-bottom: thin solid gainsboro; }
+.key-val { margin:0px; }
+.key-val-blk { margin:0px; margin-left:20pt; }
+[data-tight='false'] > li {margin-bottom:12pt;}
+q { quotes: "“" "”" "‘" "’"; }
+
+</style>
+<script>
+// grit-parser loads itself into: window.grit_parser
 // Grammar Parser -- an evolution of Grit.
 
 // See docs at: https://github.com/pcanz/grammar-parser
@@ -818,3 +838,544 @@ return this || (typeof window !== 'undefined' ? window : global);
 }()); // outer funtion name-space wrapper
     
     
+</script>
+<script>
+    // window.gritbox -- global variable for gritbox HTML events to use.
+    // expects grit-prser in: window.grit_parser, see below (line 33)....
+    if (window.gritbox) throw new Error("Browser window.gritbox already in use? ...");
+    window.gritbox = {};
+    var gritbox = window.gritbox
+
+    gritbox.RESET = (i) => {
+	    var src = gritbox.textarea_src(i)
+        var example = gritbox.example(i, 0)
+	    src.value = example.value
+	    gritbox.RUN(i);
+    }
+    gritbox.RUN = (i) => {
+        var src = gritbox.textarea_src(i)
+        var dst = gritbox.textarea_dst(i)
+        var res = "";
+        try {
+            var verbs = {
+                grit: window.grit_parser, // See above...
+                operex: window.operex,
+                write: (txt) => res += JSON.stringify(txt)+"\n",
+                print: (txt) => res += JSON.stringify(txt, null, 2),
+                nl: () => res += "\n"
+            }
+            var keys = Object.keys(verbs);
+            var vals = keys.map((k)=> verbs[k])
+            var fn = new Function(...keys, src.value)
+            fn(...vals);
+        } catch(err) {
+            res = err
+        }
+        dst.value = res;
+    }
+    gritbox.SELECT = (i) => {
+        var x = document.getElementById("gritbox-select-"+i).value;
+        var example = gritbox.example(i, x-1)
+        var src = gritbox.textarea_src(i)
+        src.value = example.value
+        gritbox.RUN(i);
+    }
+    gritbox.textarea_src = (i) => document.getElementById('gritbox-src-'+i);
+    gritbox.textarea_dst = (i) => document.getElementById('gritbox-dst-'+i);
+    gritbox.example = (i, n) => document.getElementById('gritbox-eg-'+i+'-'+n);
+</script>
+<style>
+textarea {font-family: monospace; font-size:10pt; background:whitesmoke;}
+</style>
+
+</head>
+<body>
+<h1>Grit Grammar Parser Reference</h1>
+<p>This reference guide is for the the NPM <code>grit-parser</code> package.
+</p>
+<p>Project repository: <a href='https://github.com/pcanz/grammar-parser'>https://github.com/pcanz/grammar-parser</a>
+</p>
+<h2>Usage</h2>
+<p><strong>Node.js</strong>
+</p>
+<pre class="code"><code>    npm install grit-parser</code></pre>
+<pre class="code"><code>    const grit = require("grit-parser");</code></pre>
+<p>Or use a copy of the: <code>grit-parser.js</code> file from: <a href='https://github.com/pcanz/grammar-parser'>https://github.com/pcanz/grammar-parser</a> 
+</p>
+<pre class="code"><code>    const grit = require("./grit-parser.js");</code></pre>
+<p><strong>Browser:</strong>
+</p>
+<p>Load a copy of the: <code>grit-parser.js</code> file from: <a href='https://github.com/pcanz/grammar-parser'>https://github.com/pcanz/grammar-parser</a>
+</p>
+<p>After it is loaded the bowser window global: <code>grit</code> is assigned the constructor function.
+</p>
+<p><strong>Using grit:</strong>
+</p>
+<p>The <code>grit</code> constructor function is best used as a JavaScript template literal tag:
+</p>
+<pre class="code"><code>    const my_grammar = grit` .... grammar rules .... `;</code></pre>
+<p>But it can also be used as a regular function:
+</p>
+<pre class="code"><code>    const my_grammar = grit(" ... grammar rules ... ");</code></pre>
+<p>Or better (to avoid the need to escape back-slash characters):
+</p>
+<pre class="code"><code>    const my_grammar = grit( String.raw` ... grammar rules ... ` );</code></pre>
+<p><strong>Action functions</strong>
+</p>
+<p>Can be defined as:
+</p>
+<pre class="code"><code>    my_grammar.actions = {
+        rule_action: ... JS function ... ,
+        another: ...
+    }</code></pre>
+<p>Or as a second argument to the <code>grit</code> function:
+</p>
+<pre class="code"><code>    const my_grammar = grit(" ... grammar rules ... ", { ... action functions ... });</code></pre>
+<p><strong>Parse Functions:</strong>
+</p>
+<pre class="code"><code>    const my_grammar = grit` .... grammar rules .... `;</code></pre>
+<pre class="code"><code>    var parse_tree = my_grammar.parse(" ... input ...");</code></pre>
+<p>The <code>parse</code> method will throw an exception if the parse fails for any reason.
+</p>
+<p>The <code>match</code> method is the same as the <code>parse</code> method, but it will return a null result if the grammar does not match the input.
+</p>
+<pre class="code"><code>    var parse_tree = my_grammar.match(" ... input ...");</code></pre>
+<h2>PEG Rules</h2>
+<p>A grammar rule names a PEG expression that contains string pattern matching components. 
+</p>
+<p>A PEG expression <code>e</code> may be either:
+</p>
+<ul data-tight='true'><li>a rule name reference -- to match the expression defined by that rule.</li><li>a string match component -- to directly match the input text.</li></ul>
+<p>If <code>e1</code> and <code>e2</code> are PEG expressions, then so too is:
+</p>
+<ul data-tight='true'><li><code>e1 e2</code>    -- to match a sequence of e1 followed by e2</li><li><code>e1 / e2</code>  -- which matches e1, or e2 if and only if e1 fails</li><li><code>( e1 )</code>   -- to form a group</li></ul>
+<p>The choice <code>e1 / e2</code> will only try <code>e2</code> if <code>e1</code> fails (first match wins), and there is no backtracking.
+</p>
+<ul data-tight='true'><li><code>e1 / e1 e2</code>  -- will therefore never match the second alternative.</li></ul>
+<p>An empty match is not a failure, so: <code>e1* / e2</code> should never try to match e2. But in practice it is very easy to make this kind of mistake, and there seems to be no practical reason not to treat a match of nothing the same as a failure. So this is treated as a special case, and the parser will try to match <code>e2</code> if <code>e1</code> has not matched any input. 
+</p>
+<p>Any PEG expression e can be given a predicate prefix:
+</p>
+<ul data-tight='true'><li><code>&e</code> matches an empty string <code>''</code> if e matches, else it fails. No input is consumed.</li><li><code>!e</code> matches an empty string <code>''</code> if e does NOT match, else it fails. No input is consumed.</li></ul>
+<p>Any PEG expression e can be given a repeat suffix:
+</p>
+<ul data-tight='true'><li><code>e*</code> results in an array with zero or more matches.</li><li><code>e+</code> results in an array with one or more matches.</li><li><code>e?</code> will either match <code>e</code> or an empty string <code>''</code>.</li></ul>
+<p>The result of a repeat is always the longest match and no other.
+</p>
+<ul data-tight='true'><li><code>e* e</code>  -- will therefore always fail to match any input.</li></ul>
+<p>The binding strength or precedence is (low to high):
+</p>
+<ul data-tight='true'><li><code>e1 / e2</code></li><li><code>e1 e2</code></li><li><code>&e !e</code></li><li><code>e* e+ e?</code></li></ul>
+<p>So, for example:
+</p>
+<ul data-tight='true'><li><code>e1 e2* / e3 (e4 / e5+)*  =>  ((e1 e2*) / (e3 (e4 / e5+)*))</code></li></ul>
+<h2>String Matching Components</h2>
+<p>A string matching component in a grammar rule can be either:
+</p>
+<ul data-tight='false'><li><p>A literal quoted <q>string</q> or &rsquo;string&rsquo; to be matched.
+- there are no escape codes.
+- double-quote marks (but not single-quote marks) will skip surrounding white-space.</p></li><li><p>A regex to match a regular expression.
+- a regex must start with <code>[</code> or <code>\</code> or <code>^</code>
+- for example: <code>[abc]</code> or <code>\d</code> or <code>^(abc)</code>
+- suffix repeats can be included in the regex, eg: <code>[abc]*</code> or <code>\d+</code>
+- after the start the regex is not restricted (it can be any valid RegExp)
+- for example: <code>[abc]*(\s*\d{3,4})*</code>
+- the complete regex is evaluated as a single regular expression
+- a regex can not contain any white-space, except in brackets, eg: <code>[ \t]*</code>
+- the result is the full matched string, or the first capture group if there is one.</p></li></ul>
+<p>Note that quoted literal <code>"x"</code> and the regex <code>[x]</code> will both match a literal character <code>x</code>, but  <code>"x"</code> will skip any surrounding white-space, so <code>"x"</code> is equivalent to the regex: <code>\s*(x)\s*</code>
+</p>
+<pre class="code"><code>'a+b+c' => regex: [a]\+b\+c
+"a+b+c" => regex: \s*(a\+b\+c)\s*</code></pre>
+<p>A <code>^</code> in a regex will only match at the beginning, but since each regex component is treated as a separate match it is not necessary to use a <code>^</code> at the start of a regex component (but it does no harm). Since any regex <em>may</em> begin with a <code>^</code> is can be used to introduce any regex component, for example, <code>^(x)+</code> is a regex to match one or more x characters, but <code>(x)+</code> is not a regex, it will match a list of one or more <code>x</code> rules.
+</p>
+<p>Ideally the regex components should be kept simple, such as a char-set eg: <code>[abc]</code>, or a repeated char-class eg: <code>\d+</code>. There is no loss of expressive power in keeping the regex matches simple since they are components in a larger PEG grammar. The PEG logic can include lookahead tests eg: <code>&x</code> for positive lookahead tests, or <code>!x</code> for negative lookahead tests, or a semantic action can be used.
+</p>
+<p>Simple regex components also eliminate troublesome issues with some regular expression implementations, see <a href='https://swtch.com/~rsc/regexp/regexp1.html'>Russ Cox</a> for details.
+</p>
+
+<h2>Semantic Actions</h2>
+<p>Semantic actions are functions that are applied to the result of a rule match. The actions are defined as properties of an object, which can be assigned to the <code>actions</code> property of a parser:
+</p>
+
+  <div class="gritbox controls">
+    
+      <select id="gritbox-select-1" onchange="gritbox.SELECT(1)">
+      
+      <option value='1'>Example 1.1</option>
+      <option value='2'>Example 1.2</option>
+      </select>
+    <button onClick='gritbox.RUN(1)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-1' style="width:49%" rows=19>const mdy = grit`
+    date  = month '/' day '/' year
+    day   = \d+
+    month = \d{1,2}
+    year  = \d{4}
+`;
+
+mdy.actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    day: (d) => Number(d),
+    month: (m) => Number(m),
+    year: (y) => Number(y)
+}
+
+var dt = mdy.parse("3/4/2019");
+
+write(dt);</textarea>
+  <textarea id='gritbox-dst-1' style="width:49%" rows=19></textarea>
+  
+      <textarea id='gritbox-eg-1-0' hidden>const mdy = grit`
+    date  = month '/' day '/' year
+    day   = \d+
+    month = \d{1,2}
+    year  = \d{4}
+`;
+
+mdy.actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    day: (d) => Number(d),
+    month: (m) => Number(m),
+    year: (y) => Number(y)
+}
+
+var dt = mdy.parse("3/4/2019");
+
+write(dt);</textarea>
+      <textarea id='gritbox-eg-1-1' hidden>const grammar = String.raw`
+    date  = month '/' day '/' year
+    day   = \d+
+    month = \d{1,2}
+    year  = \d{4}
+`;
+
+const actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    day: (d) => Number(d),
+    month: (m) => Number(m),
+    year: (y) => Number(y)
+}
+
+const mdy = grit(grammar, actions);
+
+var dt = mdy.parse("3/4/2019");
+
+write(dt);</textarea>
+  <script>gritbox.RUN(1)</script><br>
+
+<p>The function name corresponding to the rule name will be called with the result matched by that rule.
+</p>
+<p>The grit grammar parser constructor function may also be called with two arguments: the grammar rules, and the action functions, as in example 1.2.
+</p>
+<p>The name of a semantic action function may be appended to a rule with a <code>:</code> separator:
+</p>
+
+  <div class="gritbox controls">
+    
+      <select id="gritbox-select-2" onchange="gritbox.SELECT(2)">
+      
+      <option value='1'>Example 2.1</option>
+      <option value='2'>Example 2.2</option>
+      </select>
+    <button onClick='gritbox.RUN(2)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-2' style="width:49%" rows=17>const mdy = grit`
+    date  = month '/' day '/' year : date
+    day   = \d+                    : num
+    month = \d{1,2}                : num
+    year  = \d{4}                  : num
+`;
+
+mdy.actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    num: (n) => Number(n)
+}
+
+var dt = mdy.parse("3/4/2019");
+
+write(dt);</textarea>
+  <textarea id='gritbox-dst-2' style="width:49%" rows=17></textarea>
+  
+      <textarea id='gritbox-eg-2-0' hidden>const mdy = grit`
+    date  = month '/' day '/' year : date
+    day   = \d+                    : num
+    month = \d{1,2}                : num
+    year  = \d{4}                  : num
+`;
+
+mdy.actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    num: (n) => Number(n)
+}
+
+var dt = mdy.parse("3/4/2019");
+
+write(dt);</textarea>
+      <textarea id='gritbox-eg-2-1' hidden>const grammar = String.raw`
+    date  = month '/' day '/' year : date
+    day   = \d+                    : num
+    month = \d{1,2}                : num
+    year  = \d{4}                  : num
+`;
+
+const actions = {
+    date: ([m, _, d, _1, y]) => new Date(y, m-1, d),
+    num: (d) => Number(d)
+}
+
+const mdy = grit(grammar, actions);
+
+var dt = mdy.parse("3/4/2019");
+
+write(dt);</textarea>
+  <script>gritbox.RUN(2)</script><br>
+
+<p>If the semantic action returns <code>null</code> then the rule will fail, otherwise the action may return any result as the rule result.
+</p>
+<p>If the rule has a semantic action function name that does not match a custom function then it may match a standard built-in function name.
+</p>
+<p>An application program can always process the default parse tree without using any semantic actions(in that case the parse tree result will be an array of arrays of string values). But it is often more convenient to break the parse tree processing into smaller functions applied to the result of an individual rule.
+</p>
+<p>For example, a calculator application could process the parse tree for arithmetic expressions, but it is simpler to break the calculator application into semantic action functions that incrementally process the results of individual grammar rules:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(3)' >Example 3</button>
+    <button onClick='gritbox.RUN(3)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-3' style="width:49%" rows=19>const arith = grit`
+  expr   = factor ([+-] factor)*
+  factor = term ([*/] term)*
+  term   = \d+ / "(" expr ")"
+`;
+
+arith.actions = {
+  expr:   ([f, fs]) =>
+            fs.reduce((y, [op, x]) =>
+              op === '+'? y+x : y-x, f),   
+  factor: ([t, ts]) =>
+            ts.reduce((y, [op, x]) =>
+              op === "*"? y*x : y/x, t),
+  term:   (x) => Number(x) || x[1]
+}
+
+var e = arith.parse("1+2*(3+4)-5");
+
+write(e);</textarea>
+  <textarea id='gritbox-dst-3' style="width:49%" rows=19></textarea>
+  
+      <textarea id='gritbox-eg-3-0' hidden>const arith = grit`
+  expr   = factor ([+-] factor)*
+  factor = term ([*/] term)*
+  term   = \d+ / "(" expr ")"
+`;
+
+arith.actions = {
+  expr:   ([f, fs]) =>
+            fs.reduce((y, [op, x]) =>
+              op === '+'? y+x : y-x, f),   
+  factor: ([t, ts]) =>
+            ts.reduce((y, [op, x]) =>
+              op === "*"? y*x : y/x, t),
+  term:   (x) => Number(x) || x[1]
+}
+
+var e = arith.parse("1+2*(3+4)-5");
+
+write(e);</textarea>
+  <script>gritbox.RUN(3)</script><br>
+
+<p>The action functions are called with two arguments:
+</p>
+<ul data-tight='true'><li>The rule result -- this is usually all that is required.</li><li><p>A parse object: <code>{ name, action, pos, input, posit}</code>
+- name: the rule name
+- <code>action</code>: the action appended to the rule
+- <code>pos</code>: the current input position (after the rule match)
+- <code>input</code>: the input string being parsed
+- <code>posit(i)</code>: a function to set a new position.</p></li></ul>
+<p>The second argument parse object is not often needed, but it gives the action function access to information that can be useful for debugging, or for experimental actions (extending the built-in functions), or even to take over for special case parsing if necessary.
+</p>
+<p>It is good practice to first develop a grammar parser without using any semantic action functions. This first priority is to ensure that the grammar rules recognize input strings correctly, regardless of the structure of the parse tree. After that the rules may be reorganized to simplify the parse tree, and finally semantic actions may be employed to process the parse tree as needed by the application.
+</p>
+<p>It is important to remember that a semantic action may be called before the rule later fails as a component in another rule. This is too late for any side effects the semantic action may have generated.
+</p>
+<h3>Built-in Functions</h3>
+<p>The built-in functions:
+</p>
+<ul data-tight='true'><li><code>string</code> converts the result into a string.</li><li><code>number</code> converts the result into a number.</li><li><code>flatten</code> converts result to a flat list.</li></ul>
+<p>Rules of this form: <code>x (op x)*</code> are an idiomatic way to match lists with separators, or arithmetic expressions, and many other formats. These rules generate an awkward parse tree structure which can be simplified by these standard functions:
+</p>
+<ul data-tight='true'><li>yfx returns a left associative tree.  e.g.  <code>1+2+3 => (1+2)+3</code></li><li>xfy returns a right associative tree.  e.g. <code>2^3^4 => 2^(3^4)</code></li><li>yfy returns a flat list including the operators. e.g. <code>1+2+3 => 1 + 2 + 3</code></li><li>xfx returns a flat list excluding the operators. e.g. <code>1+2+3 => 1 2 3</code></li></ul>
+<p>The <code>yfx</code> and <code>xfy</code> actions generate parse tree nodes in this form:
+</p>
+<pre class="code" data-type='eg'>    [op, left_tree, right_tree]</pre>
+<p>Here they are used to generate the desired parse tree for our arithmetic expression grammar:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(4)' >Example 4</button>
+    <button onClick='gritbox.RUN(4)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-4' style="width:49%" rows=15>const expr = grit`
+  expr   = factor ([+-] factor)*   : yfx
+  factor = term ([*/] term)*       : yfx
+  term   = prime ("^" prime)*      : xfy
+  prime  = numb / group
+  group  = "(" expr ")"            : _x
+  numb   = \d+                     : number
+`;
+
+write( expr.parse(`1+2+3+4+5`) );
+
+write( expr.parse(`2^3^4`) );
+
+write( expr.parse(`1+2+3*(4+5)-6`) );
+</textarea>
+  <textarea id='gritbox-dst-4' style="width:49%" rows=15></textarea>
+  
+      <textarea id='gritbox-eg-4-0' hidden>const expr = grit`
+  expr   = factor ([+-] factor)*   : yfx
+  factor = term ([*/] term)*       : yfx
+  term   = prime ("^" prime)*      : xfy
+  prime  = numb / group
+  group  = "(" expr ")"            : _x
+  numb   = \d+                     : number
+`;
+
+write( expr.parse(`1+2+3+4+5`) );
+
+write( expr.parse(`2^3^4`) );
+
+write( expr.parse(`1+2+3*(4+5)-6`) );
+</textarea>
+  <script>gritbox.RUN(4)</script><br>
+
+<p>The tree structures:
+</p>
+<pre class="code" data-type='box'>              +                 ^          
+             / \               / \         
+  yfx:      +   4      xfy:   1   ^        yfy:  1 + 2 + 3 + 4    xfx:  1 2 3 4 
+           / \                   / \
+          +   3                 2   ^    
+         / \                       / \
+        1   2                     3   4     </pre>
+<p>The semantic actions can be thought of as a sort of type specification for the rule result, which can be appended to the end of the rule.
+</p>
+<h2>Debug Trace</h2>
+<p>The <code>parse</code> function has a second argument for options, which can generate a trace log to help debug a grammar. 
+</p>
+<p>Here is an example of using a trace:
+</p>
+<pre class="code" data-type='eg'>    const arith = grit`
+        expr   = factor ([+-] factor)*
+        factor = term ([*/] term)*
+        term   = \d+ / "(" expr ")"
+    `;
+
+    var e = expr.parse("1+2*(3+4)-5", {trace: true} );
+
+    0..1 term /\d+/y =>1
+    1 factor /[*\/]/y !
+    1..2 expr /[+-]/y =>+
+    2..3 term /\d+/y =>2
+    3..4 factor /[*\/]/y =>*
+    4 term /\d+/y !
+    4..5 term /\s*(\()/y =>(
+    5..6 term /\d+/y =>3
+    6 factor /[*\/]/y !
+    6..7 expr /[+-]/y =>+
+    7..8 term /\d+/y =>4
+    8 factor /[*\/]/y !
+    8 expr /[+-]/y !
+    8..9 term /\s*(\))/y =>)
+    9 factor /[*\/]/y !
+    9..10 expr /[+-]/y =>-
+    10..11 term /\d+/y =>5
+    11 factor /[*\/]/y !
+    11 expr /[+-]/y !
+</pre>
+<p>The numbers on the left are the input position of the match components with the name of the rule the component is in. Only the input match operations are logged in the trace, they usually give the most useful information, and a full trace of all rules can be very verbose.  
+</p>
+<h2>Grammar Grammar</h2>
+<p>The grammar rules can define themselves. Here is a minimal grammar that is sufficient to define itself and parse itself:
+</p>
+
+  <div class="gritbox controls">
+    
+      <button onClick='gritbox.RESET(5)' >Example 5</button>
+    <button onClick='gritbox.RUN(5)'>RUN</button>
+  </div>
+  <textarea id='gritbox-src-5' style="width:49%" rows=19>const g1 = String.raw`
+    grammar = (ws rule ws)+
+    rule    = name ws [=] expr
+
+    expr    = seq (ws [/] seq)*
+    seq     = ([ ]* term [*+?]?)*
+    term    = name / match / group
+
+    name    = [\w]+
+    match   = [[] [^\x5D]+ [\x5D] [*+?]?
+    group   = [(] expr [)]
+
+    ws      = [\s]*
+`;
+
+var p = grit(g1).parse(g1);
+
+print(p);
+</textarea>
+  <textarea id='gritbox-dst-5' style="width:49%" rows=19></textarea>
+  
+      <textarea id='gritbox-eg-5-0' hidden>const g1 = String.raw`
+    grammar = (ws rule ws)+
+    rule    = name ws [=] expr
+
+    expr    = seq (ws [/] seq)*
+    seq     = ([ ]* term [*+?]?)*
+    term    = name / match / group
+
+    name    = [\w]+
+    match   = [[] [^\x5D]+ [\x5D] [*+?]?
+    group   = [(] expr [)]
+
+    ws      = [\s]*
+`;
+
+var p = grit(g1).parse(g1);
+
+print(p);
+</textarea>
+  <script>gritbox.RUN(5)</script><br>
+
+<p>This grammar only accepts simple regex char-set string match components. 
+</p>
+<p>Here is the full grit grammar grammar:
+</p>
+<pre class="code" data-type='eg'>    grammar = rule+
+    rule    = name "=" expr ws act?
+
+    expr    = seq ("/" seq)*
+    seq     = (ws [&!]? term [*+?]?)*
+    term    = ref / quote / regex / group
+
+    name    = ws \w+
+    ref     = name !\s*=
+    group   = "(" expr ")"
+
+    quote   = '"' [^"]* '"' / "'" [^']* "'"
+    regex   = &[[\\^] (chs / par / misc)+
+    chs     = [\[] ([^\]\\]* ([\\][^])?)+ [\]]
+    par     = [(] ([^()]* par?)* [)]
+    misc    = [^[()\s]+
+
+    act     = ":" lines
+    lines   = line (\s* !\S+\s*= line)*
+    line    = [^\n\r]* 
+    ws      = \s*  </pre>
+
+
+</body>
+</html>

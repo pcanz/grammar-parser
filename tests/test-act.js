@@ -122,19 +122,19 @@ const tests = [
       }
     },
 
-    { rules: String.raw`
-        nums = (ws \d+)*  : (ns) => 
-                ns.reduce((t, [_,x]) => t+Number(x), 0)
-        ws = \s* : _
-        `,
-      inputs: [ "1 2 3" ],
-      actions: {
-          "?": (x, p) => {
-              // console.log("x",x, p.action);
-              return x;
-          }
-      }
-    }
+    // { rules: String.raw`
+    //     nums = (ws \d+)*  : (ns) => 
+    //             ns.reduce((t, [_,x]) => t+Number(x), 0)
+    //     ws = \s* : _
+    //     `,
+    //   inputs: [ "1 2 3" ],
+    //   actions: {
+    //       "?": (x, p) => {
+    //           // console.log("x",x, p.action);
+    //           return x;
+    //       }
+    //   }
+    // }
 
 ];  // tests
 
